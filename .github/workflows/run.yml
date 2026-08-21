@@ -1,0 +1,52 @@
+name: run
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          ls -la /dev/kvm || sudo apt-get update && sudo apt-get install -y --no-install-recommends cpu-checker
+          sudo chmod 666 /dev/kvm
+
+      - name: Run container
+        run: |
+          mkdir -p output
+          docker run -d --name twickets-key-extractor \
+            --device /dev/kvm --privileged \
+            -v "$PWD/output:/data/output" \
+            ghcr.io/ahobsonsayers/twickets-key-extractor:latest
+
+      - name: Wait for first-boot
+        run: |
+          for i in $(seq 1 90); do
+            if [ -f output/keys.json ]; then
+              echo "KEYS CAPTURED"; break
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -q twickets-key-extractor; then
+              echo "CONTAINER DIED"; docker logs twickets-key-extractor; exit 1
+            fi
+            sleep 20
+          done
+          [ -f output/keys.json ] || { echo "keys.json not produced"; docker logs twickets-key-extractor; exit 1; }
+
+      - name: Echo output
+        run: |
+          echo "=== keys.json ==="
+          cat output/keys.json
+          echo "=== container logs ==="
+          docker logs twickets-key-extractor
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f twickets-key-extractor || true
