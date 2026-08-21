@@ -1,0 +1,6 @@
+output/
+adbkey
+shot.png
+.dockerignore
+.gitignore
+.git/

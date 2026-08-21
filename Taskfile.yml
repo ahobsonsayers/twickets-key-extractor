@@ -1,0 +1,79 @@
+# Taskfile for the twickets-android image (extends androotu).
+version: '3'
+
+vars:
+  IMAGE: twickets-android:latest
+  CONTAINER: twickets-android
+  OUTPUT_DIR: '{{.USER_WORKING_DIR}}/output'
+  ADBKEY: '{{.USER_WORKING_DIR}}/adbkey'
+
+tasks:
+  build:
+    desc: Build the twickets-android image
+    cmds:
+      - docker build -t '{{.IMAGE}}' .
+
+  run:
+    desc: Boot the emulator container (first boot provisions + installs apps)
+    deps: [ensure-adbkey]
+    cmds:
+      - |
+        docker rm -f {{.CONTAINER}} 2>/dev/null || true
+        rm -rf '{{.OUTPUT_DIR}}'
+        mkdir -p '{{.OUTPUT_DIR}}'
+        docker run -d --name {{.CONTAINER}} \
+          --device /dev/kvm --privileged \
+          -p 15555:5555 \
+          -v '{{.OUTPUT_DIR}}:/data/output' \
+          '{{.IMAGE}}'
+
+  logs:
+    desc: Follow the container logs (watch for "Success !!")
+    cmds:
+      - docker logs -f {{.CONTAINER}}
+
+  ensure-adbkey:
+    desc: Extract the image's baked adb key for external adb
+    cmds:
+      - |
+        docker run --rm --entrypoint cat '{{.IMAGE}}' /root/.android/adbkey > {{.ADBKEY}}
+        echo "adbkey written to {{.ADBKEY}}"
+
+  adb:
+    desc: Connect adb using the image's key
+    cmds:
+      - |
+        ADB_VENDOR_KEYS={{.ADBKEY}} adb connect localhost:15555
+
+  shot:
+    desc: Capture a screenshot of the emulator
+    cmds:
+      - |
+        ADB_VENDOR_KEYS={{.ADBKEY}} adb exec-out screencap -p > shot.png
+        echo "wrote shot.png"
+
+  lint:
+    desc: shellcheck + shfmt + bash -n + biome on scripts/js
+    cmds:
+      - shellcheck scripts/*.sh
+      - shfmt -d -s -i 2 scripts/
+      - bash -n scripts/*.sh
+      - npx --yes @biomejs/biome lint scripts/capture-keys.js
+      - npx --yes @biomejs/biome format scripts/capture-keys.js
+
+  fmt:
+    desc: shfmt -s -i 2 + biome format --write
+    cmds:
+      - shfmt -w -s -i 2 scripts/
+      - npx --yes @biomejs/biome format --write scripts/capture-keys.js
+
+  chmod:
+    desc: Make shell scripts executable (so the container doesn't need to)
+    cmds:
+      - chmod +x scripts/*.sh
+
+  clean:
+    desc: Remove the container and local output volume
+    cmds:
+      - docker rm -f {{.CONTAINER}} 2>/dev/null || true
+      - rm -rf '{{.OUTPUT_DIR}}' '{{.ADBKEY}}'

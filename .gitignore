@@ -1,0 +1,7 @@
+output/
+adbkey
+shot.png
+
+# Local AVD state + test outputs (not source)
+data/
+data-output-test/
