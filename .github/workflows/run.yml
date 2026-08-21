@@ -50,11 +50,15 @@ jobs:
           docker logs twickets-key-extractor
 
       - name: Update gist
-        if: vars.GIST_ID != '' && secrets.GIST_TOKEN != ''
+        if: vars.GIST_ID != ''
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ vars.GIST_ID }}
         run: |
+          if [ -z "$GIST_TOKEN" ]; then
+            echo "GIST_TOKEN secret not set; skipping gist update"
+            exit 0
+          fi
           jq -n --slurpfile k output/keys.json \
             --arg f 'keys.json' \
             '{"files": {($f): {"content": ($k[0] | tojson)}}}' > gist-payload.json
