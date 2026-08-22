@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Install Twickets via gplaydl + anonymous Aurora dispenser, then reboot so BetterKnownInstalled marks it a Play Store install.
+# Install Twickets via gplaydl + the official dispenser (GPLAYDL_API_KEY), then reboot so BetterKnownInstalled marks it a Play Store install.
 # shellcheck source=scripts/common.sh
 set -euo pipefail
 source /opt/scripts/common.sh
 
 TWICKETS="co.twickets.droid"
-DISPENSER="https://auroraoss.com/api/auth"
 OUT="/tmp/gplaydl-twickets"
 
 # Skip if already present.
@@ -15,14 +14,20 @@ if is_installed "$TWICKETS"; then
 fi
 
 # arm64: x86_64 AVD runs ARM apps via NDK translation.
-log "Downloading latest $TWICKETS from Play Store via gplaydl"
+# The official dispenser (dispenser.gplaydl.com) is gplaydl's default; it is
+# authenticated via GPLAYDL_API_KEY. Any dispenser can be picked with -d.
+log "Downloading latest $TWICKETS from Play via gplaydl"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# The anonymous Aurora dispenser is shared and occasionally rate-limited
-# (HTTP 403/1015), so retry the download with a 60s backoff, up to 5 times.
+if [ -z "${GPLAYDL_API_KEY:-}" ]; then
+  log "ERROR: GPLAYDL_API_KEY is not set. See README for how to get one."
+  exit 1
+fi
+
+# The dispenser can be transiently rate-limited, so retry with a 60s backoff.
 for attempt in 1 2 3 4 5; do
-  if uv tool run gplaydl download "$TWICKETS" -a arm64 -d "$DISPENSER" -o "$OUT"; then
+  if uv tool run gplaydl download "$TWICKETS" -a arm64 -o "$OUT"; then
     break
   fi
   log "gplaydl download failed (attempt $attempt/5); waiting 60s"
