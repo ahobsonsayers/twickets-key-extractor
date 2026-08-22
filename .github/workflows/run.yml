@@ -23,12 +23,12 @@ jobs:
 
       - name: Run container
         env:
-          GPLAYDL_API_KEY: ${{ secrets.GPLAYDL_API_KEY }}
+          GPLAYDL_CONFIG: ${{ secrets.GPLAYDL_CONFIG }}
         run: |
           mkdir -p output
           docker run -d --name twickets-key-extractor \
             --device /dev/kvm --privileged \
-            -e GPLAYDL_API_KEY="$GPLAYDL_API_KEY" \
+            -e GPLAYDL_CONFIG="$GPLAYDL_CONFIG" \
             -v "$PWD/output:/data/output" \
             ghcr.io/ahobsonsayers/twickets-key-extractor:latest
 

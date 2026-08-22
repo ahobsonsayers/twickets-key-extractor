@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Twickets via gplaydl + the official dispenser (GPLAYDL_API_KEY), then reboot so BetterKnownInstalled marks it a Play Store install.
+# Install Twickets via gplaydl + the official dispenser (GPLAYDL_CONFIG), then reboot so BetterKnownInstalled marks it a Play Store install.
 # shellcheck source=scripts/common.sh
 set -euo pipefail
 source /opt/scripts/common.sh
@@ -15,18 +15,18 @@ fi
 
 # arm64: x86_64 AVD runs ARM apps via NDK translation.
 # gplaydl authenticates against dispenser.gplaydl.com via a config file. The
-# full config JSON is injected as GPLAYDL_API_KEY and written to the config
+# full config JSON is injected as GPLAYDL_CONFIG and written to the config
 # path so the tool reads it natively. See README for how to get a key.
-GPLAYDL_CONFIG="/root/.config/gplaydl/config.json"
+CONFIG_FILE="/root/.config/gplaydl/config.json"
 
-if [ -z "${GPLAYDL_API_KEY:-}" ]; then
-  log "ERROR: GPLAYDL_API_KEY is not set. See README for how to get one."
+if [ -z "${GPLAYDL_CONFIG:-}" ]; then
+  log "ERROR: GPLAYDL_CONFIG is not set. See README for how to get one."
   exit 1
 fi
 
-mkdir -p "$(dirname "$GPLAYDL_CONFIG")"
-printf '%s\n' "$GPLAYDL_API_KEY" >"$GPLAYDL_CONFIG"
-chmod 600 "$GPLAYDL_CONFIG"
+mkdir -p "$(dirname "$CONFIG_FILE")"
+printf '%s\n' "$GPLAYDL_CONFIG" >"$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
 
 log "Downloading latest $TWICKETS from Play via gplaydl"
 rm -rf "$OUT"

@@ -25,7 +25,7 @@ tasks:
         docker run -d --name {{.CONTAINER}} \
           --device /dev/kvm --privileged \
           -p 15555:5555 \
-          -e GPLAYDL_API_KEY="${GPLAYDL_API_KEY:-}" \
+          -e GPLAYDL_CONFIG="${GPLAYDL_CONFIG:-}" \
           -v '{{.OUTPUT_DIR}}:/data/output' \
           '{{.IMAGE}}'
 

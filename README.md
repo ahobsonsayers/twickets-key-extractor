@@ -24,7 +24,7 @@ the latest keys to a gist.
 The run workflow downloads the Twickets APK from gplaydl's official dispenser
 (`dispenser.gplaydl.com`). That dispenser requires a per-machine **API key**.
 gplaydl stores it (plus the dispenser URL) in `~/.config/gplaydl/config.json`.
-The image writes the full config JSON — provided via the `GPLAYDL_API_KEY`
+The image writes the full config JSON — provided via the `GPLAYDL_CONFIG`
 secret/env var — to that path so the tool authenticates natively. Getting a
 key takes about two minutes:
 
@@ -47,19 +47,19 @@ key takes about two minutes:
    {"dispenser": "https://dispenser.gplaydl.com", "api_key": "your-key-here"}
    ```
 
-5. The `GPLAYDL_API_KEY` env var (or GitHub secret) must contain **the full
+5. The `GPLAYDL_CONFIG` env var (or GitHub secret) must contain **the full
    contents of that config file** — the JSON above, exactly as gplaydl wrote
    it. Paste it into:
 
    ```sh
-   export GPLAYDL_API_KEY='{"dispenser":"https://dispenser.gplaydl.com","api_key":"your-key-here"}'
+   export GPLAYDL_CONFIG='{"dispenser":"https://dispenser.gplaydl.com","api_key":"your-key-here"}'
    ```
 
    For local runs, copy `.env.example` to `.env` and fill it in — `task run`
    loads it automatically:
 
    ```sh
-   cp .env.example .env   # then set GPLAYDL_API_KEY to the full config JSON in .env
+   cp .env.example .env   # then set GPLAYDL_CONFIG to the full config JSON in .env
    ```
 
 The key lets the dispenser issue the Google Play session token needed to
