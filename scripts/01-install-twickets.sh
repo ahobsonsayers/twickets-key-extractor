@@ -25,7 +25,9 @@ if [ -z "${GPLAYDL_CONFIG:-}" ]; then
 fi
 
 mkdir -p "$(dirname "$CONFIG_FILE")"
-printf '%s\n' "$GPLAYDL_CONFIG" >"$CONFIG_FILE"
+cat >"$CONFIG_FILE" <<EOF
+$GPLAYDL_CONFIG
+EOF
 chmod 600 "$CONFIG_FILE"
 
 log "Downloading latest $TWICKETS from Play via gplaydl"
