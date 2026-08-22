@@ -10,8 +10,10 @@ stack.
 1. AVD create → boot → modules (Integrity Box, KSU-Next, SUSFS, ReZygisk,
    TEESimulator, **BetterKnownInstalled**) → Supreme profile → verify.
 2. `01-install-twickets.sh`: installs latest Twickets from Google Play via
-   **gplaydl** + the anonymous **auroraoss.com/api/auth** dispenser, then
-   reboots so **BetterKnownInstalled** re-marks it as a Play Store install.
+   **gplaydl** using the **official dispenser** (`dispenser.gplaydl.com`,
+   authenticated by a per-machine API key supplied as the `GPLAYDL_CONFIG`
+   secret), then reboots so **BetterKnownInstalled** re-marks it as a Play
+   Store install.
 3. `02-start-frida.sh`: ensures frida-server is running and forwards its port.
 4. `03-open-twickets.sh`: launches the app normally, waits for it to settle,
    **attaches** frida (`-p`, not spawn — spawn crashes under translation), taps
@@ -107,7 +109,15 @@ JSON/regex.
   else it doesn't survive a clean boot. The Dockerfile downloads it at build
   time (official GitHub release, `ARG FRIDA_VERSION`, `.xz` needs `xz-utils`
   which the base image lacks). Version must match the runtime frida client.
-- The auroraoss dispenser is **rate-limited** (Google `1015`); scripts retry.
+- The **anonymous** auroraoss.com dispenser is **rate-limited** (Google `1015`)
+  and **permanently 403s GitHub Actions runner IPs** (datacenter addresses are
+  blocked). For CI, use the **official gplaydl dispenser**
+  (`dispenser.gplaydl.com`) with a per-machine API key. Get one via
+  `uv tool run gplaydl link` (one-time pairing code from the gplaydl
+  Authenticator app), which writes `~/.config/gplaydl/config.json`. Supply the
+  **entire config file** as the `GPLAYDL_CONFIG` secret/env var; `01` writes it
+  verbatim (cat heredoc) to `/root/.config/gplaydl/config.json` for gplaydl to
+  read natively. Dispenser can still rate-limit transiently → 5×60s retry.
 
 ## Commands
 
