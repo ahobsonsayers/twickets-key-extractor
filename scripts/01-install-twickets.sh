@@ -19,14 +19,14 @@ log "Downloading latest $TWICKETS from Play Store via gplaydl"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# The anonymous Aurora dispenser is shared and rate-limited (HTTP 403/1015),
-# so retry the download with backoff before giving up.
+# The anonymous Aurora dispenser is shared and occasionally rate-limited
+# (HTTP 403/1015), so retry the download with a 60s backoff, up to 5 times.
 for attempt in 1 2 3 4 5; do
   if uv tool run gplaydl download "$TWICKETS" -a arm64 -d "$DISPENSER" -o "$OUT"; then
     break
   fi
-  log "gplaydl download failed (attempt $attempt/5); waiting 30s"
-  sleep 30
+  log "gplaydl download failed (attempt $attempt/5); waiting 60s"
+  sleep 60
 done
 
 # Confirm the APKs are actually present (dispenser may 403 inside the tool).
