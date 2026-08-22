@@ -18,12 +18,14 @@ tasks:
     deps: [ensure-adbkey]
     cmds:
       - |
+        set -a; [ -f .env ] && . ./.env; set +a
         docker rm -f {{.CONTAINER}} 2>/dev/null || true
         rm -rf '{{.OUTPUT_DIR}}'
         mkdir -p '{{.OUTPUT_DIR}}'
         docker run -d --name {{.CONTAINER}} \
           --device /dev/kvm --privileged \
           -p 15555:5555 \
+          -e GPLAYDL_API_KEY="${GPLAYDL_API_KEY:-}" \
           -v '{{.OUTPUT_DIR}}:/data/output' \
           '{{.IMAGE}}'
 

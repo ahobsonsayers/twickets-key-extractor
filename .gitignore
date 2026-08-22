@@ -1,6 +1,7 @@
 output/
 adbkey
 shot.png
+.env
 
 # Local AVD state + test outputs (not source)
 data/

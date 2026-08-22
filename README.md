@@ -47,6 +47,13 @@ about two minutes:
    export GPLAYDL_API_KEY="your-key-here"
    ```
 
+   For local runs, copy `.env.example` to `.env` and fill it in — `task run`
+   loads it automatically:
+
+   ```sh
+   cp .env.example .env   # then set GPLAYDL_API_KEY in .env
+   ```
+
 The key lets the dispenser issue the Google Play session token needed to
 download the Twickets APK on each run.
 
