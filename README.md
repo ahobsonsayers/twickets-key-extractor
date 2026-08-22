@@ -22,9 +22,11 @@ the latest keys to a gist.
 ## Getting a gplaydl API key
 
 The run workflow downloads the Twickets APK from gplaydl's official dispenser
-(`dispenser.gplaydl.com`). That dispenser requires a per-machine **API key**
-provided via the `GPLAYDL_API_KEY` environment variable. Getting one takes
-about two minutes:
+(`dispenser.gplaydl.com`). That dispenser requires a per-machine **API key**.
+gplaydl stores it (plus the dispenser URL) in `~/.config/gplaydl/config.json`.
+The image writes the full config JSON — provided via the `GPLAYDL_API_KEY`
+secret/env var — to that path so the tool authenticates natively. Getting a
+key takes about two minutes:
 
 1. Install the **gplaydl Authenticator** app on any Android phone from
    `https://dispenser.gplaydl.com`.
@@ -38,20 +40,26 @@ about two minutes:
    uv tool run gplaydl link
    ```
 
-   This exchanges the code for your own API key.
+   This exchanges the code for your own API key and writes
+   `~/.config/gplaydl/config.json`, which looks like:
 
-5. Set it as an environment variable, or as a GitHub Actions secret
-   (`GPLAYDL_API_KEY`) for the scheduled workflow.
+   ```json
+   {"dispenser": "https://dispenser.gplaydl.com", "api_key": "your-key-here"}
+   ```
+
+5. The `GPLAYDL_API_KEY` env var (or GitHub secret) must contain **the full
+   contents of that config file** — the JSON above, exactly as gplaydl wrote
+   it. Paste it into:
 
    ```sh
-   export GPLAYDL_API_KEY="your-key-here"
+   export GPLAYDL_API_KEY='{"dispenser":"https://dispenser.gplaydl.com","api_key":"your-key-here"}'
    ```
 
    For local runs, copy `.env.example` to `.env` and fill it in — `task run`
    loads it automatically:
 
    ```sh
-   cp .env.example .env   # then set GPLAYDL_API_KEY in .env
+   cp .env.example .env   # then set GPLAYDL_API_KEY to the full config JSON in .env
    ```
 
 The key lets the dispenser issue the Google Play session token needed to
