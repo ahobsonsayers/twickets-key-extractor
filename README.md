@@ -47,20 +47,24 @@ key takes about two minutes:
    {"dispenser": "https://dispenser.gplaydl.com", "api_key": "your-key-here"}
    ```
 
-5. The `GPLAYDL_CONFIG` env var (or GitHub secret) must contain **the full
-   contents of that config file** — the JSON above, exactly as gplaydl wrote
-   it. Paste it into:
+5. Set `GPLAYDL_CONFIG` to the **full contents of `~/.config/gplaydl/config.json`**
+   (the JSON above, exactly as gplaydl wrote it). It is read two ways:
 
-   ```sh
-   export GPLAYDL_CONFIG='{"dispenser":"https://dispenser.gplaydl.com","api_key":"your-key-here"}'
-   ```
+   - **GitHub Actions (scheduled run):** add a repository **secret** named
+     `GPLAYDL_CONFIG` whose value is the whole config file. Fork the repo and
+     set it under **Settings → Secrets and variables → Actions**. Also set the
+     `GIST_TOKEN` secret and a `GIST_ID` repository variable to publish keys to
+     a gist (optional — without them the run still works, it just skips the
+     gist step).
+   - **Local runs:** copy `.env.example` to `.env` and fill in `GPLAYDL_CONFIG`
+     — `task run` loads it automatically:
 
-   For local runs, copy `.env.example` to `.env` and fill it in — `task run`
-   loads it automatically:
+     ```sh
+     cp .env.example .env   # then set GPLAYDL_CONFIG to the full config JSON in .env
+     ```
 
-   ```sh
-   cp .env.example .env   # then set GPLAYDL_CONFIG to the full config JSON in .env
-   ```
+Pretty-printed (multi-line) JSON is fine — the container writes the value
+verbatim to `~/.config/gplaydl/config.json` and gplaydl parses it as JSON.
 
 The key lets the dispenser issue the Google Play session token needed to
 download the Twickets APK on each run.
