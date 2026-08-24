@@ -1,8 +1,7 @@
+# Ignore certain directories
+data*/
 output/
-adbkey
-shot.png
-.env
 
-# Local AVD state + test outputs (not source)
-data/
-data-output-test/
+# Ignore certain files
+.DS_Store
+adbkey
