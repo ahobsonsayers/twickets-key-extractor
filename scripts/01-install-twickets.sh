@@ -44,8 +44,7 @@ for attempt in 1 2 3 4 5; do
 done
 
 # Confirm the APKs are actually present (dispenser may 403 inside the tool).
-apks=("$OUT"/*.apk)
-if [ ! -e "${apks[0]}" ]; then
+if ! ls "$OUT"/*.apk >/dev/null 2>&1; then
   log "ERROR: no APKs downloaded after 5 attempts"
   exit 1
 fi

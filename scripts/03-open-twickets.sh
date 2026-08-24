@@ -7,6 +7,8 @@ source /opt/scripts/common.sh
 TWICKETS="co.twickets.droid"
 HOOK="/opt/scripts/capture-keys.js"
 RAW="/tmp/ckraw.txt"
+DEVICE="emulator-5554"
+TOKEN_PATTERN="x-prosopo-android-integrity-token': 'eyJ"
 
 # Dismiss a System-UI ANR dialog (reappears during cold boot).
 dismiss_anr() {
@@ -23,16 +25,12 @@ mkdir -p /data/output
 # whole cycle if the attached app dies before the token mints.
 dismiss_anr
 log "Launching $TWICKETS"
-launch_app() {
-  "$ADB" -s emulator-5554 shell am force-stop "$TWICKETS" || true
-  sleep 2
-  "$ADB" -s emulator-5554 shell am start -n "$TWICKETS"/.splash.SplashActivity >/dev/null 2>&1 || true
-}
-
 token_seen=""
 for attempt in 1 2 3; do
   log "Attempt $attempt: launch + settle + attach"
-  launch_app
+  "$ADB" -s "$DEVICE" shell am force-stop "$TWICKETS" || true
+  sleep 2
+  "$ADB" -s "$DEVICE" shell am start -n "$TWICKETS"/.splash.SplashActivity >/dev/null 2>&1 || true
   # Wait for the bottom-nav to appear (app fully up on a tabbed screen).
   nav_seen=""
   for _ in $(seq 1 40); do
@@ -51,7 +49,7 @@ for attempt in 1 2 3; do
   # Let the app settle before instrumenting it.
   sleep 8
 
-  PID="$("$ADB" -s emulator-5554 shell pidof "$TWICKETS" | tr -d '\r' | awk '{print $1}')"
+  PID="$("$ADB" -s "$DEVICE" shell pidof "$TWICKETS" | tr -d '\r' | awk '{print $1}')"
   if [ -z "$PID" ]; then
     log "WARN: no pid (app died before attach)"
     continue
@@ -66,10 +64,10 @@ for attempt in 1 2 3; do
   log "Opening Find (ticket stream)"
   tap '^Find$' || true
   sleep 6
-  "$ADB" -s emulator-5554 shell input swipe 540 1400 540 500 400 || true
+  "$ADB" -s "$DEVICE" shell input swipe 540 1400 540 500 400 || true
   sleep 3
   for _ in $(seq 1 40); do
-    if grep -qE "x-prosopo-android-integrity-token': 'eyJ" "$RAW" 2>/dev/null; then
+    if grep -qE "$TOKEN_PATTERN" "$RAW" 2>/dev/null; then
       token_seen=1
       break
     fi
@@ -93,7 +91,7 @@ done
 
 if [ -z "$token_seen" ]; then
   log "WARN: integrity token not minted after $attempt attempts"
-  "$ADB" -s emulator-5554 exec-out screencap -p >/data/output/stream-failure.png 2>/dev/null || true
+  "$ADB" -s "$DEVICE" exec-out screencap -p >/data/output/stream-failure.png 2>/dev/null || true
   log "Screenshot: /data/output/stream-failure.png"
   ui_flat || true
 fi
