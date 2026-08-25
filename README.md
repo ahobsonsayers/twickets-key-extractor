@@ -4,9 +4,9 @@
 
 A docker image, which on run, extracts API keys (which constantly change) and other details required to allow users to call the Twickets API used by the android app directly.
 
-It does this by running a rooted Android emulator in docker (using androotu(link here)), launching Twickets and capturing & inspecting requests the app makes. See how it works section(link here) for more info.
+It does this by running a rooted Android emulator in docker (using [androotu](https://github.com/ahobsonsayers/androotu)), launching Twickets and capturing & inspecting requests the app makes. See [how it works](#how-it-works) section for more info.
 
-Leveraging androotu (link here) allows us to work around all the protections put in place by Twickets to prevent this - but is now possible using magic ✨
+Leveraging [androotu](https://github.com/ahobsonsayers/androotu) allows us to work around all the protections put in place by Twickets to prevent this - but is now possible using magic ✨
 
 ### Why
 
@@ -20,7 +20,7 @@ By using a rooted emulator which passes Play Integrity, we can therefore extract
 
 By default, this image when run, will simply boot, extract the API keys the app uses to a json file and exit. 
 
-A run can take a while ~10 mins on GitHub actions (see FAQ(link here) for why).
+A run can take a while ~10 mins on GitHub actions (see [FAQ](#faq) for why).
 
 Sadly these API keys are short lived, and are minted regularly by the app. However if the extraction is run on a regular basis to obtain new keys, you can access the API without interruption.
 
@@ -33,7 +33,7 @@ This is a one-time setup and is easy to do - but you will need an Android device
 Follow instructions at gplaydl here:
 https://github.com/rehmatworks/gplaydl
 
-After running gplaydl and completing the process copy the contents of `~/.config/gplaydl/config.json` into the `GPLAYDL_CONFIG` environment variable in your .env (see .env.example(link)), docker run or GitHub workflow.
+After running gplaydl and completing the process copy the contents of `~/.config/gplaydl/config.json` into the `GPLAYDL_CONFIG` environment variable in your .env (see [.env.example](.env.example)), docker run or GitHub workflow.
 
 Get the contents with:
 
@@ -53,14 +53,14 @@ It will look like:
 
 # Running (GitHub Actions - Recommended)
 
-The repo ships an `extract-keys`(link here) workflow that runs daily at 06:00 UTC.
+The repo ships an [`extract-keys`](.github/workflows/run.yml) workflow that runs daily at 06:00 UTC.
 
 This workflow pulls the prebuilt image, boots the emulator, and extracts the keys and pushes them to a gist for use (if set up).
 
 To run this yourself:
 
 1. Fork the repo
-2. Delete the build workflow (link here)
+2. Delete the [build workflow](.github/workflows/build.yml)
 3. Add the **`GPLAYDL_CONFIG`** repository secret (see below).
 4. (Optional) Add **`GIST_ID`** repository variable and a **`GIST_TOKEN`** secret.
 	The workflow will work without these, it just will not update a gist.
