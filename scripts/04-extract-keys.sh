@@ -19,14 +19,21 @@ token=""
 for attempt in 1 2 3; do
   # The frida CLI prefixes each line with "[Remote::PID::NNNN ]-> message: ";
   # strip that prefix, the trailing " data: None", and single quotes (for JSON).
+  # || msg="": grep returns 1 on no match; under set -e that would exit the script.
   msg="$(
     grep -m1 -E "message: .*'type': 'keys'.*$TOKEN_PATTERN" "$RAW" |
       sed 's|.*message: ||; s| data: None$||; s|'"'"'|"|g'
-  )"
-  api="$(jq -r '.payload.payload.api_key' <<<"$msg")"
-  ua="$(jq -r '.payload.payload["User-Agent"]' <<<"$msg")"
-  site="$(jq -r '.payload.payload["x-prosopo-site-key"]' <<<"$msg")"
-  token="$(jq -r '.payload.payload["x-prosopo-android-integrity-token"]' <<<"$msg")"
+  )" || msg=""
+  # jq prints "null" on empty input; skip parsing when there's no message.
+  [ -n "$msg" ] || {
+    log "Keys not yet minted (attempt $attempt/3); retrying"
+    sleep 5
+    continue
+  }
+  api="$(jq -r '.payload.payload.api_key // empty' <<<"$msg")" || api=""
+  ua="$(jq -r '.payload.payload["User-Agent"] // empty' <<<"$msg")" || ua=""
+  site="$(jq -r '.payload.payload["x-prosopo-site-key"] // empty' <<<"$msg")" || site=""
+  token="$(jq -r '.payload.payload["x-prosopo-android-integrity-token"] // empty' <<<"$msg")" || token=""
   [ -n "$api" ] && [ -n "$ua" ] && [ -n "$site" ] && [ -n "$token" ] && break
   log "Keys not yet minted (attempt $attempt/3); retrying"
   sleep 5
