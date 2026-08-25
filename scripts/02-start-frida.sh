@@ -18,6 +18,7 @@ fi
 "$ADB" -s "$DEVICE" shell 'su -c "pgrep frida-server >/dev/null || (nohup /data/local/tmp/frida-server >/dev/null 2>&1 &)"' || true
 "$ADB" -s "$DEVICE" forward tcp:27042 tcp:27042 || true
 mkdir -p /data/output
+
 sleep 2
 
 log "frida-server ready"
