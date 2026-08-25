@@ -47,12 +47,12 @@ tasks:
       - |
         ADB_VENDOR_KEYS={{.ADBKEY}} adb connect localhost:15555
 
-  shot:
+  screenshot:
     desc: Capture a screenshot of the emulator
     cmds:
       - |
-        ADB_VENDOR_KEYS={{.ADBKEY}} adb exec-out screencap -p > shot.png
-        echo "wrote shot.png"
+        ADB_VENDOR_KEYS={{.ADBKEY}} adb exec-out screencap -p > screenshot.png
+        echo "wrote screenshot.png"
 
   lint:
     desc: shellcheck + shfmt + bash -n + biome on scripts/js

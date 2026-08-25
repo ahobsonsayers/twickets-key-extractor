@@ -1,6 +1,6 @@
 # twickets-key-extractor
 
-[![Key Extraction](https://github.com/ahobsonsayers/twickets-key-extractor/actions/workflows/run.yml/badge.svg)](https://github.com/ahobsonsayers/twickets-key-extractor/actions/workflows/run.yml)
+[![Key Extraction](https://github.com/ahobsonsayers/twickets-key-extractor/actions/workflows/extract-keys.yaml/badge.svg)](https://github.com/ahobsonsayers/twickets-key-extractor/actions/workflows/extract-keys.yaml)
 
 A docker image, which on run, extracts API keys (which constantly change) and other details required to allow users to call the Twickets API used by the android app directly.
 
@@ -53,14 +53,14 @@ It will look like:
 
 # Running (GitHub Actions - Recommended)
 
-The repo ships an [`extract-keys`](.github/workflows/run.yml) workflow that runs daily at 06:00 UTC.
+The repo ships an [`extract-keys.yaml`](.github/workflows/extract-keys.yaml) workflow that runs daily at 06:00 UTC.
 
 This workflow pulls the prebuilt image, boots the emulator, and extracts the keys and pushes them to a gist for use (if set up).
 
 To run this yourself:
 
 1. Fork the repo
-2. Delete the [build workflow](.github/workflows/build.yml)
+2. Delete the [`docker-build-push.yaml`](.github/workflows/docker-build-push.yaml) workflow
 3. Add the **`GPLAYDL_CONFIG`** repository secret (see below).
 4. (Optional) Add **`GIST_ID`** repository variable and a **`GIST_TOKEN`** secret.
 	The workflow will work without these, it just will not update a gist.
@@ -128,7 +128,7 @@ curl 'https://www.twickets.live/services/catalogue?count=10&q=countryCode%3DGB&a
 
 ## How it works
 
-1. Boots `ghcr.io/ahobsonsayers/androotu` — a rooted Android 16 emulator with modules installed
+1. Boots `ghcr.io/ahobsonsayers/androotu`, a rooted Android 16 emulator with modules installed
    (Integrity Box, KSU-Next, SUSFS, ReZygisk, TEESimulator,
    **BetterKnownInstalled**) that make the emulator pass Play Integrity, and make apps appear as if installed from the Play Store.
 2. `01-install-twickets.sh` downloads Twickets (`co.twickets.droid`) from Google
