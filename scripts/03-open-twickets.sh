@@ -101,4 +101,8 @@ if [ -z "$token_seen" ]; then
   "$ADB" -s "$DEVICE" exec-out screencap -p >/data/output/stream-failure.png 2>/dev/null || true
   log "Screenshot: /data/output/stream-failure.png"
   ui_flat || true
+  # Dump the raw frida log so we can see if the hook attached or errored.
+  log "=== raw frida output ($RAW) ==="
+  cat "$RAW" 2>/dev/null || log "(no raw file)"
+  log "=== end raw frida output ==="
 fi
