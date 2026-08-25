@@ -60,7 +60,7 @@ for attempt in 1 2 3; do
     -p "$PID" -l "$HOOK" >"$RAW" 2>&1 &
   sleep 4
 
-  # Open Find and keep driving until the token mints into $RAW.
+  # Open Find and keep driving requests until the token mints into $RAW.
   log "Opening Find (ticket stream)"
   tap '^Find$' || true
   sleep 6
@@ -71,10 +71,17 @@ for attempt in 1 2 3; do
       token_seen=1
       break
     fi
-    # The stream error screens have a "Try again" button; re-tap to keep the
-    # catalogue request firing until the token exists.
-    if ui_dump && ui_center 'Something went wrong' >/dev/null 2>&1; then
-      tap 'Try again' || true
+    # Drive the app to keep catalogue requests firing until the token mints.
+    if ui_dump; then
+      if ui_center 'Something went wrong' >/dev/null 2>&1; then
+        # Stream error screen has a "Try again" button; re-tap it.
+        tap 'Try again' || true
+      else
+        # Find tab may land on its Explore landing page or the ticket stream;
+        # re-tap Find and scroll to provoke more catalogue requests.
+        tap '^Find$' || true
+        "$ADB" -s "$DEVICE" shell input swipe 540 1400 540 500 400 || true
+      fi
     fi
     sleep 1
   done
