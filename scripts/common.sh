@@ -33,11 +33,11 @@ try:
 except Exception:
     print("no ui dump")
     raise SystemExit
-for node in root.iter('node'):
-    text = (node.get('text') or '').strip()
-    desc = (node.get('content-desc') or '').strip()
-    if text or desc:
-        print(f"text={text!r} desc={desc!r} bounds={node.get('bounds')}")
+for el in root.iter('node'):
+    t = (el.get('text') or '').strip()
+    d = (el.get('content-desc') or '').strip()
+    if t or d:
+        print(f"text={t!r} desc={d!r} bounds={el.get('bounds')}")
 PYEOF
 }
 
@@ -55,8 +55,8 @@ rx = re.compile(pat, re.I)
 
 
 def center(el):
-    bounds = el.get('bounds')
-    m = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds or '')
+    b = el.get('bounds')
+    m = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', b or '')
     if not m:
         return None
     x1, y1, x2, y2 = map(int, m.groups())
@@ -97,6 +97,38 @@ tap() {
   sleep 1
 }
 
+# Wait up to ~$2 seconds for a node matching regex $1.
+wait_text() {
+  for _ in $(seq 1 "${2:-30}"); do
+    if ui_dump && [ -n "$(ui_center "$1")" ]; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+# Type text into focused field (spaces escaped for adb input).
+type_text() {
+  "$ADB" shell input text "${1// /%s}"
+  sleep 1
+}
+
+keyevent() {
+  "$ADB" shell input keyevent "$1"
+  sleep 1
+}
+
 is_installed() {
   "$ADB" shell pm path "$1" >/dev/null 2>&1
+}
+
+launch() {
+  "$ADB" shell monkey -p "$1" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+  sleep 3
+}
+
+open_url() {
+  "$ADB" shell am start -a android.intent.action.VIEW -d "$1" >/dev/null 2>&1
+  sleep 3
 }
