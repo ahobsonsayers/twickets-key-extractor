@@ -5,3 +5,4 @@ output/
 # Ignore certain files
 .DS_Store
 adbkey
+.env

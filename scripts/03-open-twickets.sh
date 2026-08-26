@@ -98,10 +98,12 @@ for attempt in 1 2 3; do
         # Stream error screen has a "Try again" button; re-tap it.
         tap 'Try again' || true
       else
-        # Find tab may land on its Explore landing page or the ticket stream;
-        # re-tap Find and scroll to provoke more catalogue requests.
+        # If the app is already warm and sitting on a loaded Find stream, tapping
+        # Find does nothing and no new request fires. Re-entering the tab via
+        # Home->Find forces a fresh catalogue fetch, which carries the token.
+        tap '^Home$' || true
+        sleep 1
         tap '^Find$' || true
-        "$ADB" -s "$DEVICE" shell input swipe 540 1400 540 500 400 || true
       fi
     fi
 

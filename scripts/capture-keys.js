@@ -43,9 +43,17 @@ Java.perform(() => {
 		Chain.f.overload("mz.p2").implementation = function (req) {
 			try {
 				const urlStr = req.toString();
+				const hasToken = urlStr.includes("x-prosopo-android-integrity-token");
+
+				// Diagnostic: log every call so we can see if the hook is live
+				// and what requests actually look like.
+				send({
+					type: "debug",
+					payload: `${hasToken ? "TOKEN" : "no-token"} ${urlStr}`,
+				});
 
 				// Emit only when the integrity JWE is present — all 4 keys are ready.
-				if (urlStr.includes("x-prosopo-android-integrity-token")) {
+				if (hasToken) {
 					send({ type: "keys", payload: extract(urlStr) });
 				}
 			} catch (_e) {
