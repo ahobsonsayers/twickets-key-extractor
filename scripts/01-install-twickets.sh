@@ -39,23 +39,26 @@ for attempt in 1 2 3 4 5; do
   if uv tool run gplaydl download "$TWICKETS" -a arm64 -o "$OUT"; then
     break
   fi
+
   log "gplaydl download failed (attempt $attempt/5); waiting 60s"
+
   sleep 60
 done
 
 # Confirm the APKs are actually present (dispenser may 403 inside the tool).
-apks=("$OUT"/*.apk)
-if [ ! -e "${apks[0]}" ]; then
+if ! ls "$OUT"/*.apk >/dev/null 2>&1; then
   log "ERROR: no APKs downloaded after 5 attempts"
   exit 1
 fi
 
 # Output dir has base APK plus splits; install them all.
 log "Installing $TWICKETS"
+
 "$ADB" install-multiple "$OUT"/*.apk
 
 # BetterKnownInstalled marks it a Play Store install after a reboot.
 log "Rebooting so BetterKnownInstalled marks $TWICKETS as Play Store-installed"
+
 "$ADB" reboot
 "$ADB" wait-for-device
 

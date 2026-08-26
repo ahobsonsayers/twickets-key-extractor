@@ -13,27 +13,27 @@ const KEYS = [
 ];
 
 function extract(reqStr) {
-	const out = {};
+	const keys = {};
 
 	// Pull the headers=[...] block out of the request's toString().
 	const headers = reqStr.match(/headers=\[([^\]]*)\]/);
 	if (headers) {
 		const lines = headers[1].split(", ");
-		for (const l of lines) {
+		for (const line of lines) {
 			// Each entry is "Name:Value"; split on the first colon.
-			const idx = l.indexOf(":");
-			if (idx === -1) continue;
+			const colonIdx = line.indexOf(":");
+			if (colonIdx === -1) continue;
 
-			const name = l.slice(0, idx);
-			if (KEYS.indexOf(name) !== -1) out[name] = l.slice(idx + 1);
+			const name = line.slice(0, colonIdx);
+			if (KEYS.includes(name)) keys[name] = line.slice(colonIdx + 1);
 		}
 	}
 
 	// api_key is a query param, not a header.
-	const m = reqStr.match(/[?&]api_key=([^&,]+)/);
-	if (m) out.api_key = decodeURIComponent(m[1]);
+	const apiKeyMatch = reqStr.match(/[?&]api_key=([^&,]+)/);
+	if (apiKeyMatch) keys.api_key = decodeURIComponent(apiKeyMatch[1]);
 
-	return out;
+	return keys;
 }
 
 Java.perform(() => {
@@ -45,7 +45,7 @@ Java.perform(() => {
 				const urlStr = req.toString();
 
 				// Emit only when the integrity JWE is present — all 4 keys are ready.
-				if (urlStr.indexOf("x-prosopo-android-integrity-token") !== -1) {
+				if (urlStr.includes("x-prosopo-android-integrity-token")) {
 					send({ type: "keys", payload: extract(urlStr) });
 				}
 			} catch (_e) {
