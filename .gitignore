@@ -1,8 +1,12 @@
 # Ignore certain directories
 data*/
-output/
+output*/
 
 # Ignore certain files
-.DS_Store
-adbkey
+*.DS_Store
+.~lock*
 .env
+.secrets
+*.secrets
+scratch*
+adbkey
