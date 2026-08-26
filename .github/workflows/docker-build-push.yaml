@@ -3,6 +3,10 @@ name: Build & Push Docker Image
 on:
   push:
     branches: [main]
+    paths:
+      - Dockerfile
+      - scripts/**
+      - .github/**
   workflow_dispatch:
 
 jobs:
