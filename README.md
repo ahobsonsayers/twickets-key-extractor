@@ -3,7 +3,7 @@
 [![Key Extraction](https://github.com/ahobsonsayers/twickets-key-extractor/actions/workflows/extract-keys.yaml/badge.svg)](https://github.com/ahobsonsayers/twickets-key-extractor/actions/workflows/extract-keys.yaml)
 [![Artisan README - Not LLM](https://img.shields.io/static/v1?label=Artisan+README&message=Not+LLM&labelColor=37474F&color=EF6C00)](https://github.com/ahobsonsayers/twickets-key-extractor#arnl--artisan-readme-not-llm)
 
-![banner](assets/banner.png)
+![banner](assets/banner.webp)
 
 A docker image, which on run, extracts API keys (which constantly change) and other details required to allow users to call the Twickets API used by the android app directly.
 
