@@ -1,7 +1,7 @@
 # twickets-key-extractor
 
 [![Key Extraction](https://github.com/ahobsonsayers/twickets-key-extractor/actions/workflows/extract-keys.yaml/badge.svg)](https://github.com/ahobsonsayers/twickets-key-extractor/actions/workflows/extract-keys.yaml)
-[![Artisan README - Not LLM](https://img.shields.io/static/v1?label=Artisan+README&message=Not+LLM&labelColor=37474F&color=D97757)](https://github.com/ahobsonsayers/twickets-key-extractor#arnl--artisan-readme-not-llm)
+[![Artisan README - Not LLM](https://img.shields.io/static/v1?label=Artisan+README&message=Not+LLM&labelColor=37474F&color=D97757)](#arnl---artisan-readme-not-llm)
 
 ![banner](assets/banner.webp)
 
