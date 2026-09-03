@@ -5,11 +5,11 @@
 
 ![banner](assets/banner.webp)
 
-A docker image, which on run, extracts API keys (which constantly change) and other details required to allow users to call the Twickets API used by the android app directly.
+A docker image, which on run, extracts API keys (which constantly change) and other details required to allow users to directly call the Twickets API used by the Android app.
 
 It does this by running a rooted Android emulator in docker (using [androotu](https://github.com/ahobsonsayers/androotu)), launching Twickets and capturing & inspecting requests the app makes. See [how it works](#how-it-works) section for more info.
 
-Leveraging [androotu](https://github.com/ahobsonsayers/androotu) allows us to work around all the protections put in place by Twickets to prevent this - but is now possible using magic ✨
+Leveraging [androotu](https://github.com/ahobsonsayers/androotu) allows us to work around the protections put in place by Twickets to prevent this - but is now possible using magic ✨
 
 ### Why
 
@@ -17,7 +17,7 @@ Twickets recently introduced Prosopo bot protection to their site which makes it
 
 The Android app also has these anti-bot protections but via a different method - utilising Play Integrity rather than bot challenges.
 
-By using a rooted emulator which passes Play Integrity, we can therefore extract the keys the app uses and therefore allow us to use the API the app uses.
+By using a rooted emulator which passes Play Integrity, we can therefore extract the keys the app uses, allowing us to use the API the app uses.
 
 ### Running
 
