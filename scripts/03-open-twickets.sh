@@ -60,7 +60,7 @@ for attempt in 1 2 3; do
   # Let the app settle before instrumenting it.
   sleep 10
 
-  PID="$("$ADB" -s "$DEVICE" shell pidof "$TWICKETS" | tr -d '\r' | awk '{print $1}')"
+  PID="$("$ADB" -s "$DEVICE" shell pidof "$TWICKETS" | tr -d '\r' | awk '{print $1}')" || PID=""
 
   if [ -z "$PID" ]; then
     log "WARN: no pid (app died before attach)"

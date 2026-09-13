@@ -50,7 +50,7 @@ try:
     import xml.etree.ElementTree as ET
     root = ET.parse('/tmp/ui.xml').getroot()
 except Exception:
-    sys.exit(0)
+    sys.exit(1)
 rx = re.compile(pat, re.I)
 
 
@@ -82,7 +82,7 @@ for el in root.iter('node'):
         if c:
             print(*c)
             sys.exit(0)
-sys.exit(0)
+sys.exit(1)
 PYEOF
 }
 
