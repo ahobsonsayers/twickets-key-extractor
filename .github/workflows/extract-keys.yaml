@@ -58,6 +58,54 @@ jobs:
 
           [ -f output/keys.json ] || { echo "keys.json not produced"; docker logs twickets-key-extractor; exit 1; }
 
+      - name: Replay from runner IP (one-off Prosopo test)
+        run: |
+          python3 << 'PYEOF'
+          import json, subprocess, os, time
+
+          keys = json.load(open("output/keys.json"))
+          print(f"runner exit IP: {subprocess.run(['curl','-s','--max-time','10','https://api.ipify.org'], capture_output=True, text=True).stdout.strip()}")
+
+          url = f"https://www.twickets.live/services/catalogue?count=10&q=countryCode%3DGB&api_key={keys['api_key']}"
+          headers = {
+              "User-Agent": keys["User-Agent"],
+              "x-prosopo-site-key": keys["x-prosopo-site-key"],
+              "x-prosopo-android-integrity-token": keys["x-prosopo-android-integrity-token"],
+          }
+
+          out = subprocess.run(["curl", "-s", "-w", "\n--HTTP:%{http_code}--", url,
+              "-H", f"User-Agent: {headers['User-Agent']}",
+              "-H", f"x-prosopo-site-key: {headers['x-prosopo-site-key']}",
+              "-H", f"x-prosopo-android-integrity-token: {headers['x-prosopo-android-integrity-token']}"],
+              capture_output=True, text=True, timeout=30).stdout
+          parts = out.rsplit("\n--HTTP:", 1)
+          body = parts[0] if len(parts) > 1 else out
+          code = parts[1].strip("-\n") if len(parts) > 1 else "?"
+          try:
+              d = json.loads(body)
+              print(f"plain curl:        {code} responseCode={d.get('responseCode')} items={len(d.get('responseData') or [])} error={d.get('error', '-')}")
+          except Exception:
+              print(f"plain curl:        {code} body[:150]={body[:180]}")
+
+          try:
+              from curl_cffi import requests as creq
+              okhttp_fp = dict(
+                  ja3="771,4865-4866-4867-49195-49196-52393-49199-49200-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-51-45-43-21,29-23-24,0",
+                  akamai="4:16777216|16711681|0|m,p,a,s",
+                  extra_fp=dict(
+                      tls_signature_algorithms=["ecdsa_secp256r1_sha256","rsa_pss_rsae_sha256","rsa_pkcs1_sha256","ecdsa_secp384r1_sha384","rsa_pss_rsae_sha384","rsa_pkcs1_sha384","rsa_pss_rsae_sha512","rsa_pkcs1_sha512","rsa_pkcs1_sha1"],
+                      tls_grease=False, tls_permute_extensions=False, tls_cert_compression="brotli",
+                      http2_stream_weight=256, http2_stream_exclusive=1,
+                  ),
+              )
+              r = creq.get(url, headers=headers, impersonate="chrome", timeout=20, **okhttp_fp)
+              try: d = r.json(); summary = f"responseCode={d.get('responseCode')} items={len(d.get('responseData') or [])} error={d.get('error', '-')}"
+              except Exception: summary = r.text[:180]
+              print(f"okhttp-fp curl_cffi: {r.status_code} decision={r.headers.get('x-prosopo-decision')} {summary}")
+          except Exception as e:
+              print(f"okhttp-fp curl_cffi: ERROR {str(e)[:200]}")
+          PYEOF
+
       - name: Echo output
         run: |
           echo "=== keys.json ==="
