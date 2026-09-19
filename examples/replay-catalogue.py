@@ -9,7 +9,7 @@ catalogue request, prints the response. That's it.
 
 Anti-block rules (AGENTS.md) — read them first. Short version:
 - ONE run per session. No loops, no retries. A 403 means STOP, not retry.
-- Only run this on user's explicit go-ahead, and never while the keybox/IP
+- Only run this on user's explicit go-ahead, and never while the IP
   is flagged (if the app's own requests 403, you are flagged — wait).
 
 keys.json comes from the pipeline (/data/output/keys.json): the 4 catalogue

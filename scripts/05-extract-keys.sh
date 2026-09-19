@@ -18,8 +18,8 @@ if [ -f /data/output/render-failed.txt ]; then
   echo "ERROR: $(cat /data/output/render-failed.txt)"
   echo "  The Find stream did not render content. If a token was captured"
   echo "  anyway, the server is rejecting the app's own requests — the"
-  echo "  keybox/IP is likely BLOCKED (see LEARNINGS.md)."
-  echo "  Do NOT retry or re-extract; wait or change IP/keybox."
+  echo "  IP is likely BLOCKED (see LEARNINGS.md)."
+  echo "  Do NOT retry or re-extract; wait or change IP."
   exit 1
 fi
 

@@ -99,7 +99,7 @@ for attempt in 1 2 3; do
 
   # Every tap below refires a catalogue request. Three probes with breathing
   # room between them, then stop tapping — hammering while the server is
-  # 403-ing is what got the keybox flagged (AGENTS.md). If the token still
+  # 403-ing is what got our IP flagged (AGENTS.md). If the token still
   # hasn't minted, the outer attempt loop force-stops and relaunches the
   # app for a fresh window.
   probes=0
@@ -186,12 +186,12 @@ if [ -z "$stream_ok" ]; then
   #
   # If a token was captured but the stream still shows 'Something went
   # wrong', the server is 403-ing the app's OWN requests. That is the
-  # signature of a flagged keybox/IP (see LEARNINGS.md, "Don't probe-farm
+  # signature of a flagged IP (see LEARNINGS.md, "Don't probe-farm
   # the server") — do NOT retry, re-extract, or re-launch to fix this; it
-  # needs idle time or a new IP/keybox.
+  # needs idle time or a new IP.
   if [ -n "$token_seen" ]; then
-    log "NOTE: token minted but stream rejected — IP/keybox may be BLOCKED server-side"
-    echo "token seen but stream rejected - possible IP/keybox block" >/data/output/render-failed.txt
+    log "NOTE: token minted but stream rejected — IP may be BLOCKED server-side"
+    echo "token seen but stream rejected - possible IP block" >/data/output/render-failed.txt
   else
     echo "stream never rendered" >/data/output/render-failed.txt
   fi

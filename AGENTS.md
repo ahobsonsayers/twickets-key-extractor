@@ -14,16 +14,17 @@ Working agreements (carry over from the user's global AGENTS.md):
 ## NEVER probe-farm the Twickets servers
 
 This is the most important section in this file. **Violation of any rule
-below can get our IP and the image's keybox permanently blocked.**
+below can get our IP permanently blocked.**
 
 We learned this the hard way (2026-09-18/19): within roughly one hour of
 rapid testing — ~4 quick `key_id` mints plus a stream of failed replay
-probes — the keybox identity and/or our NAT IP got **flagged server-side**.
+probes — our NAT IP got **flagged server-side**.
 Afterwards **even the app's own requests returned 403** (fresh `key_id` or
 not), and the block **did not clear after 2+ idle hours**. The user had to
 wait and let it expire. The key-attest endpoint kept issuing key_ids the
 whole time — the block hits at *verify* time, so you won't see it at
-issuance.
+issuance. We've repeatedly confirmed the block is **IP-level, not
+keybox-level** (same keybox works from a clean IP; issuance never stops).
 
 Rules:
 

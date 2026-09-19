@@ -52,7 +52,7 @@ jobs:
 
             if [ -f output/render-failed.txt ]; then
               echo "RENDER FAILED: $(cat output/render-failed.txt)"
-              echo "The app's own requests were rejected — possible IP/keybox block (see AGENTS.md/LEARNINGS.md). Do not re-run to retry."
+              echo "The app's own requests were rejected — possible IP block (see AGENTS.md/LEARNINGS.md). Do not re-run to retry."
               docker logs twickets-key-extractor | tail -n 80
               exit 1
             fi

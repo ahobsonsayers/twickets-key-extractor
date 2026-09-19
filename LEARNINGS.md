@@ -212,14 +212,14 @@ catalogue request (+ its one key-challenge GET) per session and only with
 the user's go-ahead; one app relaunch per session; if a live test fails,
 diagnose offline and wait.
 
-What happened (2026-09-18/19): the keybox identity (or the host IP — both
-share the NAT address baked into `session_jwt`) got flagged after ~1 hour of
+What happened (2026-09-18/19): our NAT IP got flagged after ~1 hour of
 probe traffic: ~4 rapid `key_id` mints plus a stream of failed-verify
 replays. Afterwards **even the app's own requests 403**, fresh `key_id` or
 not, and it did **not** recover after **10+ idle hours** (re-checked
 2026-09-19: key-challenge GETs 200, catalogue 403 — block at verify, not
-issuance). The key-attest endpoint kept issuing new `key_id`s to the
-flagged keybox the whole time. Extraction runs should be gentle: launch,
+issuance). The key-attest endpoint kept issuing new `key_id`s the whole
+time — the block is **IP-level, not keybox-level** (the same keybox works
+from a clean IP). Extraction runs should be gentle: launch,
 drive the app once, extract, done.
 
 ## Licensing: why Twickets was self-exiting
@@ -289,15 +289,15 @@ JSON/regex.
 - `03-open-twickets.sh` must not abort the chain (first-boot runs scripts under
   `set -e`, so a failing script stops before `touch /data/.first-boot-done`);
   `04` is the real gate for `keys.json`.
-- **A token in a request is NOT success.** When the keybox/IP is flagged the
+- **A token in a request is NOT success.** When the IP is flagged the
   app still sends its stored JWE — a token appears in the hook output while
   the server 403s every request. That's how a blocked run used to go green
   and publish dead keys. Since 2026-09-19 `03` also requires the Find
   stream to actually render (no "Something went wrong" screen); on failure
   it writes `/data/output/render-failed.txt` and `04` refuses to publish
   keys.json (CI fails fast on the marker too). A "token seen but stream
-  rejected" failure is the signature of a server-side IP/keybox block —
-  do not retry or re-extract; wait it out or change IP/keybox.
+  rejected" failure is the signature of a server-side IP block —
+  do not retry or re-extract; wait it out or change IP.
 
 ## Environment quirks (this host)
 
