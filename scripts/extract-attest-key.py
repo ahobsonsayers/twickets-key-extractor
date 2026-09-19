@@ -120,10 +120,13 @@ Java.perform(function () {
 
 def get_leaf_pubkey():
     """Attach frida to the running app, read the leaf cert's public key."""
-    # Leaked frida CLI sessions (e.g. 03's still-attached hook) block a new
-    # attach indefinitely; clear them first. frida-server has a different
-    # cmdline, so it survives.
-    adb("shell", "kill $(pgrep -f 'frida -H 127.0.0.1:27042') 2>/dev/null", check=False)
+    # Leaked frida CLI sessions (e.g. 03's still-attached hook, or a previous
+    # 04 run) block a new attach indefinitely. The CLIs run in THIS container
+    # (uv/frida), not on the device, so kill them here; frida-server (on
+    # device, different cmdline) survives.
+    subprocess.run(
+        ["pkill", "-9", "-f", "frida .*-H 127.0.0.1:27042"], check=False,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1)
 
     # pidof exits 1 with no output when the app is dead (03's frida pkill
@@ -144,41 +147,46 @@ def get_leaf_pubkey():
 
     cmd = f"{FRIDA_CMD} -H {FRIDA_HOST} -p {pid} -l {js}".split()
     try:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        # Unbuffered binary pipe: select() watches the raw fd, so a buffered
+        # text wrapper could hide already-arrived lines from it.
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
     except FileNotFoundError:
         die(f"frida CLI not found ({FRIDA_CMD.split()[0]}) — set FRIDA_CMD to a working frida")
 
     leaf_b64 = None
     deadline = time.time() + 90
     try:
-        # select() with a timeout: readline() alone can block forever if the
-        # attach stalls, and the deadline would never be re-checked.
         import select
 
-        fd = p.stdout
+        fd = p.stdout.fileno()
+        buf = b""
         while time.time() < deadline:
             r, _, _ = select.select([fd], [], [], 1.0)
-            if not r:
-                if p.poll() is not None:
-                    break
-                continue
-            line = fd.readline()
-            if not line:
-                if p.poll() is not None:
-                    break
-                continue
-            if "message: " not in line:
-                continue
-            payload = line.split("message: ", 1)[1].replace(" data: None", "").strip()
-            try:
-                inner = ast.literal_eval(payload)["payload"]["payload"]
-            except Exception:
-                continue
-            if inner.get("type") == "leaf":
-                leaf_b64 = inner["payload"]
+            if r:
+                chunk = os.read(fd, 65536)
+                if chunk:
+                    buf += chunk
+            if p.poll() is not None and not r:
                 break
-            if inner.get("type") == "err":
-                die(f"frida could not read the keychain: {inner['payload']}")
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                text = line.decode(errors="replace")
+                if "message: " not in text:
+                    continue
+                payload = text.split("message: ", 1)[1].replace(" data: None", "").strip()
+                try:
+                    inner = ast.literal_eval(payload)["payload"]
+                except Exception:
+                    continue
+                if not isinstance(inner, dict):
+                    continue
+                if inner.get("type") == "leaf":
+                    leaf_b64 = inner["payload"]
+                    break
+                if inner.get("type") == "err":
+                    die(f"frida could not read the keychain: {inner['payload']}")
+            if leaf_b64:
+                break
     finally:
         p.kill()
         os.unlink(js)
@@ -248,16 +256,28 @@ def dump_candidates():
             if path and not (path.startswith("[heap]") or path.startswith("[anon:") or path.startswith("[stack")):
                 continue
             size = end - start
-            # Small cap: the key is minted early and lives in small heap/anon
-            # regions; giant ranges OOM-kill the emulator (CI exit 1 at 04).
-            if size > 16 * 1024 * 1024:
+            # Round down to page multiple: dd skip/count are in pages, so a
+            # non-multiple range silently dumps the wrong window.
+            size -= size % 4096
+            if size <= 0:
                 continue
-            total += size
-            if total > 64 * 1024 * 1024:
-                break
+            # Giant ranges OOM-kill the emulator (CI exit 1 at 04).
+            if size > 64 * 1024 * 1024:
+                continue
             ranges.append((start, size))
-            if len(ranges) >= 16:  # cap total work
+        # Deterministic: scan the biggest ranges first (key material lives in
+        # heap pools, not the dozens of tiny guard regions).
+        ranges.sort(key=lambda r: -r[1])
+        total = 0
+        kept = []
+        for r in ranges:
+            if len(kept) >= 32:  # cap total work
                 break
+            if total + r[1] > 256 * 1024 * 1024:
+                continue
+            total += r[1]
+            kept.append(r)
+        ranges = kept
 
         dumps = []
         for idx, (start, size) in enumerate(ranges):
@@ -282,9 +302,12 @@ def dump_candidates():
     return results
 
 
+P256_ORDER = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+
 def try_scalar(s_int, leaf_pub):
     """Does integer s derive the leaf public key?"""
-    if s_int <= 1 or s_int >= ec.SECP256R1().order:
+    if s_int <= 1 or s_int >= P256_ORDER:
         return None
     try:
         k = ec.derive_private_key(s_int, ec.SECP256R1())
