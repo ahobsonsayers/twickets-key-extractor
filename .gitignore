@@ -10,3 +10,4 @@ output*/
 *.secrets
 scratch*
 adbkey
+__pycache__/
