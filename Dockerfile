@@ -13,4 +13,4 @@ RUN mkdir -p /opt/tools && \
 
 COPY scripts /opt/scripts/
 
-RUN chmod +x /opt/scripts/*.sh /opt/scripts/*.py
+RUN uv tool install frida-tools && chmod +x /opt/scripts/*.sh /opt/scripts/*.py

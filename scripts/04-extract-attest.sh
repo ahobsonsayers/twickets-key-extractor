@@ -6,9 +6,13 @@ set -euo pipefail
 source /opt/scripts/common.sh
 
 # -u: unbuffered — early prints survive even if python is killed later.
-if timeout 300 python3 -u /opt/scripts/extract-attest-key.py; then
+# Output is captured so CI can see WHY extraction failed (frida deaths were
+# invisible before).
+LOG=/data/output/attest-extract.log
+if timeout 300 python3 -u /opt/scripts/extract-attest-key.py 2>&1 | tee "$LOG"; then
   log "Attest key extracted"
 else
-  log "WARN: attest key extraction failed — continuing without it"
+  log "WARN: attest key extraction failed — full log below"
+  cat "$LOG"
   rm -f /data/output/attest.json
 fi

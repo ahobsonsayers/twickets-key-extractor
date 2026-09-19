@@ -33,7 +33,7 @@ jobs:
           cat output/keys.json
 
           jq -e '.attest.key_pem' output/keys.json > /dev/null \
-            || { echo "keys.json has no attest section — did the Extract Keys run's attest extraction (04) fail?"; exit 1; }
+            || { echo ""; echo "keys.json has no attest section — did the Extract Keys run's attest extraction (04) fail?"; exit 1; }
         env:
           GIST_ID: ${{ vars.GIST_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}

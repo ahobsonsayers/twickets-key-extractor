@@ -50,7 +50,7 @@ ADB = os.environ.get(
     else "adb",
 )
 SERIAL = os.environ.get("ADB_SERIAL", "emulator-5554")
-FRIDA_CMD = os.environ.get("FRIDA_CMD", "uv tool run --from frida-tools frida")
+FRIDA_CMD = os.environ.get("FRIDA_CMD", "frida")
 FRIDA_HOST = os.environ.get("FRIDA_HOST", "127.0.0.1:27042")
 APP = "co.twickets.droid"
 ALIAS = "prosopo_attest_key"
@@ -143,7 +143,7 @@ def get_leaf_pubkey():
         die(f"frida CLI not found ({FRIDA_CMD.split()[0]}) — set FRIDA_CMD to a working frida")
 
     leaf_b64 = None
-    deadline = time.time() + 25
+    deadline = time.time() + 90
     try:
         while time.time() < deadline:
             line = p.stdout.readline()
