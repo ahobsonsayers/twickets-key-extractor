@@ -118,6 +118,22 @@ Java.perform(function () {
 """
 
 
+LEAF_FILE = os.environ.get("LEAF_FILE", "/data/output/leaf.json")
+
+
+def leaf_from_03():
+    """Fast path: 03's capture session already sent the leaf cert; a second
+    frida attach here is what OOM-killed the CI runner."""
+    try:
+        with open(LEAF_FILE) as f:
+            b64 = f.read().strip()
+        cert = x509.load_der_x509_certificate(base64.b64decode(b64))
+        print(f"  leaf pubkey from 03's capture ({LEAF_FILE})")
+        return cert.public_key()
+    except Exception:
+        return None
+
+
 def get_leaf_pubkey():
     """Attach frida to the running app, read the leaf cert's public key."""
     # Leaked frida CLI sessions (e.g. 03's still-attached hook, or a previous
@@ -369,7 +385,7 @@ def main():
     print(f"  key_attest_key_id = {key_id}")
 
     print("Attaching frida to read the leaf cert's public key ...")
-    leaf_key = get_leaf_pubkey()
+    leaf_key = leaf_from_03() or get_leaf_pubkey()
     leaf_pub = pub_bytes(leaf_key)
     print(f"  leaf pubkey (uncompressed) = {leaf_pub.hex()[:24]}...")
 

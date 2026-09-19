@@ -9,6 +9,15 @@ HOOK="/opt/scripts/capture-keys.js"
 RAW="/tmp/ckraw.txt"
 DEVICE="emulator-5554"
 TOKEN_PATTERN="x-prosopo-android-integrity-token': 'eyJ"
+FRIDA_PID=""
+
+# The attached CLI must not outlive this script: a leaked session blocks 04's
+# attach (and its process tree OOM-kills the CI runner).
+cleanup() {
+  [ -n "$FRIDA_PID" ] && kill -9 "$FRIDA_PID" 2>/dev/null
+  pkill -9 -f "capture-keys.js" 2>/dev/null
+}
+trap cleanup EXIT
 
 # Dismiss a System-UI ANR dialog (reappears during cold boot).
 dismiss_anr() {
@@ -72,6 +81,7 @@ for attempt in 1 2 3; do
   rm -f "$RAW"
   nohup uv tool run --from frida-tools frida -H 127.0.0.1:27042 \
     -p "$PID" -l "$HOOK" >"$RAW" 2>&1 &
+  FRIDA_PID=$!
 
   # Give frida time to attach and the hook to load before driving the app.
   sleep 10
@@ -112,12 +122,26 @@ for attempt in 1 2 3; do
   done
 
   # Clean up the attached frida for this attempt.
-  pkill -f "capture-keys.js" 2>/dev/null || true
+  cleanup
 
   if [ -n "$token_seen" ]; then
     # A token in a request only proves the JWE exists — not that the server
     # accepted it. The Find stream must actually render content.
     sleep 3
+
+    # Hand the attest leaf cert to 04 while our session is still warm: the
+    # hook sends it one-shot alongside the keys. 04 then never needs its own
+    # frida attach.
+    leaf_b64="$(grep -m1 "type': 'leaf'" "$RAW" |
+      grep -o "payload': '[A-Za-z0-9+/=]*'" | cut -d"'" -f4)" || leaf_b64=""
+
+    if [ -n "$leaf_b64" ]; then
+      printf '%s' "$leaf_b64" >/data/output/leaf.json
+      log "Leaf cert captured for 04"
+    else
+      rm -f /data/output/leaf.json
+    fi
+
     if ui_dump && ui_center 'Something went wrong' >/dev/null 2>&1; then
       log "WARN: token captured but stream rejected — server is 403-ing the app's own requests"
     else

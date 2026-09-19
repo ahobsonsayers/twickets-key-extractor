@@ -48,6 +48,7 @@ function extract(reqStr) {
 
 let chainHooked = false;
 let chainFailures = 0;
+let leafSent = false;
 
 function capture(urlStr) {
 	const hasToken = urlStr.includes("x-prosopo-android-integrity-token");
@@ -60,6 +61,26 @@ function capture(urlStr) {
 
 	if (hasToken) {
 		send({ type: "keys", payload: extract(urlStr) });
+
+		// One-shot: also grab the attest key's leaf cert so 04 can skip its
+		// own frida session (a second attach is what was killing CI).
+		if (!leafSent) {
+			leafSent = true;
+			try {
+				const ks = Java.use("java.security.KeyStore").getInstance(
+					"AndroidKeyStore",
+				);
+				ks.load(null, null);
+				const chain = ks.getCertificateChain("prosopo_attest_key");
+				const b64 = Java.use("android.util.Base64").encodeToString(
+					chain[0].getEncoded(),
+					2,
+				);
+				send({ type: "leaf", payload: b64 });
+			} catch (e) {
+				send({ type: "status", payload: `leaf ${e}` });
+			}
+		}
 	}
 }
 
