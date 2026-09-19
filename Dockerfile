@@ -1,6 +1,7 @@
 FROM ghcr.io/ahobsonsayers/androotu:latest
 
 ARG FRIDA_VERSION=17.17.0
+ENV PATH="/root/.local/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends xz-utils jq python3-cryptography && rm -rf /var/lib/apt/lists/*
 
