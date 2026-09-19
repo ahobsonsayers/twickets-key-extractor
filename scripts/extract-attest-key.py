@@ -10,19 +10,20 @@ off-device (examples/replay-catalogue.py).
 This script makes ZERO requests to Twickets servers. Ever. It only reads
 device-local state (prefs, keybox, process memory).
 
-Run INSIDE the container (it drives the container's adb and needs `cryptography`):
+Run INSIDE the container (the image's 04-extract-attest.sh does this
+automatically; it drives the container's adb and needs `cryptography`):
 
-    docker cp examples/extract-attest-key.py twickets-android:/tmp/
-    docker exec twickets-android uv run --with cryptography python3 /tmp/extract-attest-key.py
-    docker cp twickets-android:/tmp/attest-key.json .
+    04-extract-attest.sh   # part of the numbered pipeline
 
-Prereqs: the app is attested (key_attest_key_id in prefs — run the 01-04
-pipeline once first) and the app has been relaunched recently (keygen happens
-once at app start, so key material is freshest in memory right after a
-launch). Do NOT clear prosopo_protect prefs — a fresh attestation generates
-a NEW key and orphans this one.
+Prereqs: the app is attested (key_id in prefs — run the pipeline up to 03
+first) and the app has been relaunched recently (keygen happens once at app
+start, so key material is freshest in memory right after a launch). Do NOT
+clear prosopo_protect prefs — a fresh attestation generates a NEW key and
+orphans this one.
 
-Output: /tmp/attest-key.json {key_pem, key_id, source, extracted_at}.
+Output: writes an `attest` object {key_pem, key_id, source, extracted_at}
+to /data/output/attest.json (env-overridable via OUT_FILE); 05-extract-keys.sh
+folds it into keys.json.
 """
 
 import ast
@@ -38,7 +39,7 @@ import time
 from datetime import datetime, timezone
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
@@ -56,7 +57,7 @@ ALIAS = "prosopo_attest_key"
 PREFS = "/data/data/co.twickets.droid/shared_prefs/prosopo_protect.xml"
 KEYBOX = "/data/adb/tricky_store/keybox.xml"
 DUMP_DIR = "/data/local/tmp/attestdump"
-OUT = "/tmp/attest-key.json"
+OUT_FILE = os.environ.get("OUT_FILE", "/data/output/attest.json")
 P256_OID = b"\x2a\x86\x48\xce\x3d\x03\x01\x07"  # 1.2.840.10045.3.1.7
 
 
@@ -94,7 +95,7 @@ def read_key_id():
     if not m:
         die(
             "no key_attest_key_id in prefs — the app has not attested.\n"
-            "Run the pipeline once (scripts/01-04) so the app passes key-attest,\n"
+            "Run the pipeline through 03 so the app passes key-attest,\n"
             "then re-run this. Force-stop + ONE relaunch re-attests if needed.\n"
             "Do NOT spam relaunches — see the anti-block rules in AGENTS.md."
         )
@@ -242,7 +243,7 @@ def dump_candidates():
                 if data:
                     dumps.append((start, data))
             except OSError:
-                continue
+                pass
             adb_shell(f"rm -f {dst} /tmp/attest-local.bin")
         if dumps:
             results.append((pid, name, dumps))
@@ -251,20 +252,17 @@ def dump_candidates():
 
 def try_scalar(s_int, leaf_pub):
     """Does integer s derive the leaf public key?"""
+    if s_int <= 1 or s_int >= ec.SECP256R1().order:
+        return None
     try:
-        if s_int <= 1 or s_int >= ec.SECP256R1().order:
-            return None
         k = ec.derive_private_key(s_int, ec.SECP256R1())
-        if pub_bytes(k.public_key()) == leaf_pub:
-            return k
     except Exception:
         return None
-    return None
+    return k if pub_bytes(k.public_key()) == leaf_pub else None
 
 
 def scan_dump(start, data, leaf_pub):
     """Find the P-256 scalar in one dump; returns a private key or None."""
-    n = ec.SECP256R1().order
 
     # (a) DER-encoded EC private keys (SEC1 / PKCS8 fragments)
     i = data.find(P256_OID)
@@ -354,17 +352,19 @@ def emit(key, key_id, source, leaf_pub):
         serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption(),
     ).decode()
-    out = {
+
+    keys = {"attest": {
         "key_pem": pem,
         "key_id": key_id,
         "source": source,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
-    }
-    with open(OUT, "w") as f:
-        json.dump(out, f, indent=2)
-    print(f"\nWrote {OUT} (source: {source})")
-    print("Use it with examples/replay-catalogue.py — read its header first")
-    print("and follow the AGENTS.md anti-block rules: ONE replay per session.")
+    }}
+    with open(OUT_FILE, "w") as f:
+        json.dump(keys, f, indent=2)
+    print(f"\nWrote {OUT_FILE} (source: {source})")
+    print("05-extract-keys.sh folds this into keys.json; use that with")
+    print("examples/replay-catalogue.py — and follow the AGENTS.md anti-block")
+    print("rules: ONE replay per session.")
 
 
 if __name__ == "__main__":
