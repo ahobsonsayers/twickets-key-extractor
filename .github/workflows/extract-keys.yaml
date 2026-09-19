@@ -61,6 +61,10 @@ jobs:
               echo "CONTAINER DIED"; docker logs twickets-key-extractor; exit 1
             fi
 
+            if ! docker exec twickets-key-extractor pgrep -f 'first-boot.sh' > /dev/null; then
+              echo "FIRST-BOOT DIED (container still up)"; docker logs twickets-key-extractor | tail -n 80; exit 1
+            fi
+
             sleep 20
             i=$((i+1))
           done

@@ -14,8 +14,8 @@ FRIDA_PID=""
 # The attached CLI must not outlive this script: a leaked session blocks 04's
 # attach (and its process tree OOM-kills the CI runner).
 cleanup() {
-  [ -n "$FRIDA_PID" ] && kill -9 "$FRIDA_PID" 2>/dev/null
-  pkill -9 -f "capture-keys.js" 2>/dev/null
+  [ -n "$FRIDA_PID" ] && kill -9 "$FRIDA_PID" 2>/dev/null || true
+  pkill -9 -f "capture-keys.js" 2>/dev/null || true
 }
 trap cleanup EXIT
 
