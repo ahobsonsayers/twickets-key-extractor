@@ -19,13 +19,15 @@ The Android app also has these anti-bot protections but via a different method -
 
 By using a rooted emulator which passes Play Integrity, we can therefore extract the keys the app uses, allowing us to use the API the app uses.
 
+> **v3.20 (Sept 2026):** the app now also signs every main-API request with hardware-backed key attestation, and the server enforces it. The image handles this via TrickyStore (bundled in the base image, signed with a keybox rooted in Google's genuine attestation root) - the extractor now adds the app to its target list, so the app itself passes attestation and extraction works as before. But the per-request signatures mean the extracted keys **cannot be replayed from outside the app** any more - the JWE alone gets 403 even minutes after minting. Until that changes, keys.json is useful for the 3 static keys and for inspecting what the live app sends.
+
 ### Running
 
 By default, this image when run, will simply boot, extract the API keys the app uses to a json file and exit. 
 
 A run can take a while ~10 mins on GitHub actions (see [FAQ](#faq) for why).
 
-Sadly these API keys are short lived, and are minted regularly by the app. However if the extraction is run on a regular basis to obtain new keys, you can access the API without interruption.
+Sadly these keys are short lived - server-side the integrity JWE is rejected within minutes of minting (verified live), so plan to re-extract per session rather than on a schedule. And as of v3.20, replay is blocked entirely by the enforced hardware attestation (see the note above).
 
 ## Setup
 
@@ -99,7 +101,7 @@ docker compose up
 
 Keys land in `./output/keys.json`. 
 
-Remember: as the JWE is short lived, you will need to run this on a regular, scheduled basis to get new keys to use.
+Remember: the JWE is rejected server-side within minutes of minting, so treat each extraction as valid for one session - re-extract when you need fresh keys, not on a schedule. (Under v3.20 the JWE is additionally blocked by enforced attestation - see the note in [Why](#why).)
 
 **Other useful tasks:**
 
@@ -130,12 +132,16 @@ curl 'https://www.twickets.live/services/catalogue?count=10&q=countryCode%3DGB&a
   -H 'x-prosopo-android-integrity-token: <token>'
 ```
 
+Note: since v3.20 the app also signs every main-API request with hardware-backed key attestation headers (bound per-request, so not reproducible outside Android), and the server enforces these - so this replay is currently blocked, even with a freshly minted JWE (verified live: a byte-identical replay 0.7s after capture is still rejected). The last working replay recipe is documented in the [decompile repo](https://github.com/ahobsonsayers/twickets-decompile); if enforcement is ever relaxed, the keys above will work again as before.
+
 ## How it works
 
 1. Boots `ghcr.io/ahobsonsayers/androotu`, a rooted Android 16 emulator with modules installed
    (Integrity Box, KSU-Next, SUSFS, ReZygisk, TEESimulator,
    **BetterKnownInstalled**) that make the emulator pass Play Integrity, and make apps appear as if installed from the Play Store.
-2. `01-install-twickets.sh` downloads Twickets (`co.twickets.droid`) from Google
+2. `01-install-twickets.sh` adds Twickets to **TrickyStore's** target list
+   (so the app's v3.20 hardware key attestation is signed with the bundled
+   Google-rooted keybox), downloads Twickets (`co.twickets.droid`) from Google
    Play via **gplaydl**, installs it, then reboots so the **BetterKnownInstalled** module re-marks it
    as a Play Store install - bypassing the app's Play Automatic Integrity
    Protection.
@@ -147,7 +153,7 @@ curl 'https://www.twickets.live/services/catalogue?count=10&q=countryCode%3DGB&a
    `/data/output/keys.json`. Fails if any key is missing.
 
 The Frida hook (`scripts/capture-keys.js`) intercepts requests and emits the keys once a request carries the
-JWE - which is what we use as the signal that all 4 keys are available.
+JWE - which is what we use as the signal that all 4 keys are available. It hooks the app's own interceptors to find the live request pipeline at runtime, so it survives the obfuscated-class renaming Twickets ships with each release.
 
 
 ## FAQ

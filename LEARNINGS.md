@@ -21,28 +21,198 @@ stack.
 5. `04-extract-keys.sh`: extracts the 4 request keys from the hook output,
    writing `/data/output/keys.json`. Fails if any key is missing.
 
+**Status under v3.20**: the capture works end-to-end (all 4 keys land in
+keys.json) and — with the TrickyStore fix in `01` — the app itself passes key
+attestation again and its requests return 200. The JWE still doesn't replay
+**off-device**: v3.20 also signs every request with per-request
+hardware-attestation headers, which can't be reproduced outside the app (see
+the v3.20 section). The pipeline remains useful for the 3 static keys, the
+JWE, and for verifying what the live app sends.
+
 ## The 4 catalogue keys (`/data/output/keys.json`)
 
 | key | value | kind |
 |---|---|---|
 | `api_key` | `3aaf0790-5e80-4ebc-b2e3-349b35e06656` | static (query param) |
-| `User-Agent` | `Twickets/3.19 (Android/16)` | static (header) |
+| `User-Agent` | `Twickets/3.20 (Android/16)` | static (header) |
 | `x-prosopo-site-key` | `5EZVvsHMrKCFKp5NYNoTyDjTjetoVo1Z4UNNbTwJf1GfN6Xm` | static (header) |
 | `x-prosopo-android-integrity-token` | dynamic JWE `eyJhbGciOiJBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIn0...` | dynamic per-launch (header) |
 
-Replay (no cookie needed) → HTTP 200:
+Replay (no cookie needed) → HTTP 200 — **true through v3.19 only**. Under
+v3.20 every request also needs a valid per-request attestation signature
+that can't be captured-and-replayed from outside the app (see the v3.20
+section below):
 
 ```sh
 curl 'https://www.twickets.live/services/catalogue?count=10&q=countryCode%3DGB&api_key=<KEY>' \
-  -H 'User-Agent: Twickets/3.19 (Android/16)' \
+  -H 'User-Agent: Twickets/3.20 (Android/16)' \
   -H 'x-prosopo-site-key: 5EZVvsHMrKCFKp5NYNoTyDjTjetoVo1Z4UNNbTwJf1GfN6Xm' \
   -H 'x-prosopo-android-integrity-token: <JWE>'
 ```
 
 The "play jwe" is `x-prosopo-android-integrity-token` (JWE `{alg:A256KW,
-enc:A256GCM}`). The "proposer session" is `x-prosopo-site-key`. It's minted
-only after the app warms up — never present on the very first request after
-launch.
+enc:A256GCM}`). The "proposer session" is `x-prosopo-site-key`. The JWE is
+minted only after the app warms up — never present on the very first request
+after launch. It needs the Play-Integrity and `protect/init` steps of the
+v3.20 handshake, which **do** complete on this emulator — the key-attestation
+step never does (below), but that doesn't block the mint.
+
+The client would re-mint it only every ~22h (79200000 ms, `c60/f.java`),
+but the **server** rejects it within minutes — verified live: a token that
+returned 200 came back 403 minutes later, and a stale-but-format-valid JWE
+is also 403. Only minutes-old tokens replay. So re-extract **per session**,
+not per day; the daily 06:00 workflow run is a ceiling, not a cadence.
+
+## v3.20 (versionCode 189): what changed — and what it breaks
+
+Google Play now serves v3.20, and the [decompile
+repo](https://github.com/ahobsonsayers/twickets-decompile) documents it
+(source-only; its live checks were against v3.19):
+
+- **Every main-API request now also carries** `x-prosopo-android-sdk-version:
+  1.0.2` (static) plus four **hardware-backed key-attestation headers**:
+  `x-prosopo-android-key-id`, `-assertion` (base64 ECDSA-SHA256 over
+  `-client-data`), `-client-data` (base64 JSON `{method, path, challenge,
+  timestamp}`), `-challenge`. The signing key lives in AndroidKeyStore
+  (`prosopo_attest_key`) and the signature is bound to each request, so
+  these are **not statically reproducible** and are not captured.
+- **The pre-JWE handshake on `protect.twickets.live`**: `GET
+  /api/android/key-challenge` → `POST /api/android/key-attest` (stores
+  `key_id` in prefs `prosopo_protect`), then `GET
+  /api/android/integrity-nonce` feeds the Play-Integrity `POST
+  /api/android/integrity`; `POST /api/protect/init` mints the JWE.
+- The JWE itself is still stored in SharedPreferences
+  `prosopo_protect/integrity_token` (root-readable without Frida, if ever
+  needed as a fallback capture path).
+- keys.json still ships the 4 replay keys; the hook additionally
+  logs `x-prosopo-android-sdk-version` for visibility.
+
+### Key-attestation enforcement is LIVE — the fix is TrickyStore
+
+Verified live on v3.20 (2026-09-18): with the stock module setup the app's
+**own** catalogue requests return **403** on this emulator. Traced with a
+diagnostic Frida hook over the app's real classes (`c60.c` attestation,
+guard OkHttp client, prefs writes):
+
+1. The app runs key attestation **once at startup** (`c60.o` ctor →
+   `f(…, 1)` → `c.a()` → `c.c()`), guarded by prefs+`AtomicBoolean`, with
+   **catch-all swallows** — a failure is never retried and never logged.
+2. It gets all the way to a successful TEE keygen (`TEESimulator` keymint
+   works: keypair generated with the server's challenge) — then
+   `POST /api/android/key-attest` returns **403** with the body
+   `{"error":"Attestation Failed","message":"invalid certificate
+   chain: root is not a pinned Google attestation root"}`.
+3. The endpoint pins **Google's hardware-attestation root**. The emulator's
+   own software keymint issues chains rooted in its simulated root, so the
+   attestation can never pass. `key_id` stays null forever → the guard
+   interceptor `c60.p` signs nothing → every main-API request 403s.
+4. Server-side validation order (probed via curl): DER/base64 decode →
+   challenge single-use consumption → cert-chain parse → **root pin**. A
+   rejected attestation consumes the challenge, so retries need a fresh
+   `key-challenge` GET each time.
+
+**The fix**: the base image already ships **TrickyStore** with a keybox whose
+root cert is a byte-exact match for Google's published *Key Attestation CA1*
+root — but Twickets wasn't in its target list, so its keygen was never
+intercepted. Adding `co.twickets.droid` to `/data/adb/tricky_store/target.txt`
+(`01-install-twickets.sh` does this now) makes TrickyStore generate the
+attestation chain from the keybox → the key-attest POST passes the root pin →
+`key_id` is issued and stored in prefs `prosopo_protect/key_attest_key_id` →
+the app signs and its catalogue requests return 200 again (verified live:
+Find tab renders real listings; the JWE even replayed at 32h old while
+signed by the app).
+
+### Off-device replay: still dead under v3.20
+
+Even with the app itself fixed, a captured set cannot be replayed from
+outside — verified by harvesting a **fresh, unconsumed** signed request via
+a hook that aborts it before it leaves the device, then replaying it from
+the host 0.7s later, byte-identical, with the session cookie added:
+
+- full header set (4 keys + all attestation headers + cookie) → **403**
+  `{"error":"Android key attestation verification failed"}`
+- without the attestation headers → 403 "Android integrity verification
+  failed" (the JWE gate); keys-only → same. Two distinct gates stack.
+- **not** a TLS-fingerprint gate: `curl_cffi` (chrome131 impersonation)
+  gets past the CloudFront WAF that blocks system curl and reaches the
+  origin checker — still the attestation 403. `tls-client` okhttp profiles
+  behave the same.
+- So the signature verifies against server-side state beyond the request
+  bytes (challenge binding/issuance heuristics we can't see). Don't burn
+  time on transport impersonation: replay is dead until enforcement
+  changes.
+
+### Off-device signing (experimental, built 2026-09-19, UNTESTED)
+
+If replay is dead but the app can sign, the remaining escape is to **get
+the private key itself** and sign requests ourselves. On this emulator
+that's possible in principle: the "TEE" is software (TrickyStore's
+keymint), so the private key exists as bytes somewhere root can reach.
+On a real phone it isn't (the key never leaves the chip).
+
+Two hypotheses for where the key lives:
+
+- **A: TrickyStore hands the app a keybox key.** In generate mode
+  TrickyStore may sign with the keybox's own EC private key — then the
+  extractable key is sitting in `/data/adb/tricky_store/keybox.xml`
+  (root-readable).
+- **B: the app generated its own key**, which lives as plaintext/bignum
+  state in the keystore/keymint daemon's memory. Dump those processes
+  right after an app launch (keygen is once at start) and scan for the
+  P-256 scalar (DER EC fragments, BoringSSL `bignum_st` shape, or
+  `--brute` windows), verifying candidates against the leaf cert's
+  public key.
+
+Built (in `examples/`, neither makes any request unless run):
+
+- `extract-attest-key.py` — reads `key_id` from prefs + leaf pubkey via a
+  frida attach, checks the keybox first (A), falls back to a memory
+  dump+scan (B). Zero Twickets traffic. Output: `attest-key.json`.
+- `replay-catalogue.py` — the super-basic prover: one key-challenge GET →
+  sign `client_data` → one catalogue GET → print. Uses `curl_cffi`
+  chrome131 (plain curl/urllib get WAF-blocked).
+
+Runbook for the first live test (ONLY with the user's go-ahead, and only
+once unflagged — fresh boot / new IP first):
+
+1. Pipeline once (`01`–`04` → `keys.json`). Don't clear
+   `prosopo_protect` prefs afterwards — a re-attestation generates a new
+   key and orphans the extracted one.
+2. Run `extract-attest-key.py` in the container (zero requests).
+3. Run `replay-catalogue.py` **once**. Read the verdict. STOP.
+4. If 403 "Android key attestation verification failed": compare our
+   `client_data` byte-for-byte against a real harvested one (passive
+   hook) — compact JSON, this exact key order, path without query,
+   `timestamp` `%Y-%m-%dT%H:%M:%SZ` UTC; signature is DER (Java
+   `SHA256withECDSA`), base64 with padding (= Java `NO_WRAP`).
+
+Escalation path if signing alone still 403s (v2, NOT built): full
+off-device attestation — mint our own leaf cert carrying the pubkey plus
+a KeyDescription attestation extension (OID 1.3.6.1.4.1.11129.2.1.17)
+with a fresh challenge, signed by the keybox leaf key, chain
+`[our_leaf, keybox_leaf, Droid CA3, Droid CA2, root]`, and `POST
+/api/android/key-attest` from the host for our own `key_id`. The endpoint
+is callable off-device and TrickyStore chains pass its root pin — the
+risk is unknown server strictness on chain signatures, basicConstraints
+and attestation-record fields.
+
+### Don't probe-farm the server
+
+**Read `AGENTS.md` first — its rules are binding, not advice.** The short
+version: never loop/retry/batch against Twickets servers; at most ONE
+catalogue request (+ its one key-challenge GET) per session and only with
+the user's go-ahead; one app relaunch per session; if a live test fails,
+diagnose offline and wait.
+
+What happened (2026-09-18/19): the keybox identity (or the host IP — both
+share the NAT address baked into `session_jwt`) got flagged after ~1 hour of
+probe traffic: ~4 rapid `key_id` mints plus a stream of failed-verify
+replays. Afterwards **even the app's own requests 403**, fresh `key_id` or
+not, and it did **not** recover after **10+ idle hours** (re-checked
+2026-09-19: key-challenge GETs 200, catalogue 403 — block at verify, not
+issuance). The key-attest endpoint kept issuing new `key_id`s to the
+flagged keybox the whole time. Extraction runs should be gentle: launch,
+drive the app once, extract, done.
 
 ## Licensing: why Twickets was self-exiting
 
@@ -57,10 +227,24 @@ launch.
 
 ## Frida: the capture mechanism
 
-Hook `ha0.i.f(mz.p2)` = R8-obfuscated OkHttp `Chain.proceed(finalRequest)`.
-When `req.toString()` carries `x-prosopo-android-integrity-token`, emit the 4
+Hook the OkHttp `Chain.proceed(request)` of the live request. When
+`req.toString()` carries `x-prosopo-android-integrity-token`, emit the 4
 keys.
 
+- **Never hardcode the obfuscated chain class name.** R8 re-obfuscates it
+  every release: the v3.19 chain was `ha0.i.f(mz.p2)`, and v3.20 renamed it
+  out of existence — 5 straight workflow failures
+  (`ClassNotFoundException: Didn't find class "ha0.i"`, runs 34910907993 →
+  35332903860) until the hook was made version-agnostic. The fix boots from
+  the app's own **un-obfuscated** interceptors
+  (`co.twickets.droid.networking.interceptor.ApiKeyInterceptor` /
+  `UseAgentInterceptor`, kept by R8 v3.19 → v3.20): hook their 1-param
+  `intercept(chain)`, take the live chain object, read its runtime class
+  (`chain.$className`), then hook that class's proceed-shaped methods
+  (instance, 1 param, non-void) via `getDeclaredMethods`. No obfuscated
+  name is ever referenced by the hook.
+- The `c60.p` (v3.20) guard interceptor itself is also renamed every
+  release (v3.19: `w50.i`) — grep header *literals*, not class names.
 - **Use the Frida CLI, not the Python API.** `frida.bindings` / `frida` python
   raised `ReferenceError: Java is not defined` on this x86_64/NDK-translation
   device; `uv tool run --from frida-tools frida -H 127.0.0.1:27042 ...` works.
@@ -123,7 +307,7 @@ JSON/regex.
 
 ```sh
 adb -s emulator-5554 shell am force-stop co.twickets.droid
-uv tool run --from frida-tools frida -H 127.0.0.1:27042 -f co.twickets.droid -l /opt/scripts/capture-keys.js
+uv tool run --from frida-tools frida -H 127.0.0.1:27042 -p <pid> -l /opt/scripts/capture-keys.js   # attach, never spawn
 adb -s emulator-5554 shell input tap 403 2274   # Find tab
 python3 -c 'import json,urllib.request; ...'    # replay with /data/output/keys.json
 ```
@@ -147,8 +331,11 @@ race — the JWE isn't minted yet. `03-open-twickets.sh` launches the app,
 settles it, attaches frida, and re-taps until the token mints; `04-extract-keys.sh`
 extracts it once present.
 
-**Do I need the Cookie header?** No. The 4 keys replay the catalogue endpoint
-with HTTP 200.
+**Do I need the Cookie header?** No. Through v3.19 the 4 keys alone replayed
+the catalogue endpoint with HTTP 200 (no cookie needed). Under v3.20 the
+signature gate blocks replay from outside the app entirely (cookie or not,
+see the v3.20 section); on-device the app itself works once TrickyStore
+targets it.
 
 **Why is the token empty sometimes in the raw log?** The first request(s)
 carry `x-prosopo-android-integrity-token: ''`. The parser skips empty values
