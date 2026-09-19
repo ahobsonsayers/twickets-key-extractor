@@ -28,6 +28,7 @@ dismiss_anr
 
 log "Launching $TWICKETS"
 token_seen=""
+stream_ok=""
 
 for attempt in 1 2 3; do
   log "Attempt $attempt: launch + settle + attach"
@@ -114,15 +115,23 @@ for attempt in 1 2 3; do
   pkill -f "capture-keys.js" 2>/dev/null || true
 
   if [ -n "$token_seen" ]; then
-    log "Ticket stream rendered (integrity token captured)"
-    break
+    # A token in a request only proves the JWE exists — not that the server
+    # accepted it. The Find stream must actually render content.
+    sleep 3
+    if ui_dump && ui_center 'Something went wrong' >/dev/null 2>&1; then
+      log "WARN: token captured but stream rejected — server is 403-ing the app's own requests"
+    else
+      stream_ok=1
+      log "Ticket stream rendered (integrity token captured)"
+      break
+    fi
+  else
+    log "Token not captured on attempt $attempt"
   fi
-
-  log "Token not captured on attempt $attempt"
 done
 
-if [ -z "$token_seen" ]; then
-  log "WARN: integrity token not minted after $attempt attempts"
+if [ -z "$stream_ok" ]; then
+  log "WARN: Find stream did not render with content"
 
   "$ADB" -s "$DEVICE" exec-out screencap -p >/data/output/stream-failure.png 2>/dev/null || true
   log "Screenshot: /data/output/stream-failure.png"
@@ -133,4 +142,19 @@ if [ -z "$token_seen" ]; then
   log "=== raw frida output ($RAW) ==="
   cat "$RAW" 2>/dev/null || log "(no raw file)"
   log "=== end raw frida output ==="
+
+  # Mark the failure so 05 refuses to publish dead keys, and so CI can
+  # fail fast instead of waiting out its timeout.
+  #
+  # If a token was captured but the stream still shows 'Something went
+  # wrong', the server is 403-ing the app's OWN requests. That is the
+  # signature of a flagged keybox/IP (see LEARNINGS.md, "Don't probe-farm
+  # the server") — do NOT retry, re-extract, or re-launch to fix this; it
+  # needs idle time or a new IP/keybox.
+  if [ -n "$token_seen" ]; then
+    log "NOTE: token minted but stream rejected — IP/keybox may be BLOCKED server-side"
+    echo "token seen but stream rejected - possible IP/keybox block" >/data/output/render-failed.txt
+  else
+    echo "stream never rendered" >/data/output/render-failed.txt
+  fi
 fi

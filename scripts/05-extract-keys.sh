@@ -1,12 +1,27 @@
 #!/usr/bin/env bash
-# Extract the 4 request keys from the frida output into keys.json.
+# Extract the 4 request keys from the frida output into keys.json, folding
+# in the attest key from 04 (if extracted). This is the pipeline's final gate.
 set -euo pipefail
 # shellcheck source=scripts/common.sh
 source /opt/scripts/common.sh
 
 RAW="/tmp/ckraw.txt"
 OUT="/data/output/keys.json"
+ATTEST="/data/output/attest.json"
+TMP="/data/output/keys.json.tmp"
 TOKEN_PATTERN="x-prosopo-android-integrity-token': 'eyJ"
+
+# 03 marks a rejected stream here. Publishing keys from a rejected run
+# would hand out a token the server already refuses — even for the app
+# itself. Do not write keys.json in that case.
+if [ -f /data/output/render-failed.txt ]; then
+  echo "ERROR: $(cat /data/output/render-failed.txt)"
+  echo "  The Find stream did not render content. If a token was captured"
+  echo "  anyway, the server is rejecting the app's own requests — the"
+  echo "  keybox/IP is likely BLOCKED (see LEARNINGS.md)."
+  echo "  Do NOT retry or re-extract; wait or change IP/keybox."
+  exit 1
+fi
 
 # Extract the 4 keys from the first message bearing a real integrity token.
 # -m1 avoids the head pipe (SIGPIPE kills this under pipefail/set -e).
@@ -55,7 +70,7 @@ if [ -z "$api" ] || [ -z "$ua" ] || [ -z "$site" ] || [ -z "$token" ]; then
   exit 1
 fi
 
-cat >"$OUT" <<EOF
+cat >"$TMP" <<EOF
 {
   "api_key": "$api",
   "User-Agent": "$ua",
@@ -63,6 +78,14 @@ cat >"$OUT" <<EOF
   "x-prosopo-android-integrity-token": "$token"
 }
 EOF
+
+# Written via mv: CI polls for keys.json and must never see it half-built.
+if jq -e '.attest.key_pem' "$ATTEST" >/dev/null 2>&1; then
+  jq --slurpfile a "$ATTEST" '. + {attest: $a[0].attest}' "$TMP" >"$TMP.2" && mv "$TMP.2" "$TMP"
+else
+  log "WARN: no valid attest.json — publishing keys.json without the attest section"
+fi
+mv "$TMP" "$OUT"
 
 cat "$OUT"
 log "Wrote $OUT"
