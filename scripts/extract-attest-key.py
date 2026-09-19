@@ -120,6 +120,12 @@ Java.perform(function () {
 
 def get_leaf_pubkey():
     """Attach frida to the running app, read the leaf cert's public key."""
+    # Leaked frida CLI sessions (e.g. 03's still-attached hook) block a new
+    # attach indefinitely; clear them first. frida-server has a different
+    # cmdline, so it survives.
+    adb("shell", "kill $(pgrep -f 'frida -H 127.0.0.1:27042') 2>/dev/null", check=False)
+    time.sleep(1)
+
     # pidof exits 1 with no output when the app is dead (03's frida pkill
     # can take the app down); one relaunch is safe — prefs make the app
     # short-circuit attestation, so no new key gets minted.
@@ -145,8 +151,18 @@ def get_leaf_pubkey():
     leaf_b64 = None
     deadline = time.time() + 90
     try:
+        # select() with a timeout: readline() alone can block forever if the
+        # attach stalls, and the deadline would never be re-checked.
+        import select
+
+        fd = p.stdout
         while time.time() < deadline:
-            line = p.stdout.readline()
+            r, _, _ = select.select([fd], [], [], 1.0)
+            if not r:
+                if p.poll() is not None:
+                    break
+                continue
+            line = fd.readline()
             if not line:
                 if p.poll() is not None:
                     break
@@ -164,7 +180,7 @@ def get_leaf_pubkey():
             if inner.get("type") == "err":
                 die(f"frida could not read the keychain: {inner['payload']}")
     finally:
-        p.terminate()
+        p.kill()
         os.unlink(js)
 
     if not leaf_b64:
