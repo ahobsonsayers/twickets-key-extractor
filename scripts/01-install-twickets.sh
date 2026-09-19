@@ -7,6 +7,18 @@ source /opt/scripts/common.sh
 TWICKETS="co.twickets.droid"
 OUT="/tmp/gplaydl-twickets"
 
+# v3.20 signs every main-API request with hardware key attestation, and the
+# server pins Google's attestation root. TrickyStore (a KSU module in the
+# base image) signs keymint attestations with its bundled keybox — rooted in
+# Google's genuine attestation root — but only for apps in its target list.
+# Target Twickets so its key-attest POST passes; read at the next app launch.
+TRICKY_TARGET="/data/adb/tricky_store/target.txt"
+log "Adding $TWICKETS to TrickyStore target list"
+"$ADB" shell "su 0 sh -c 'grep -q $TWICKETS $TRICKY_TARGET 2>/dev/null || echo $TWICKETS >> $TRICKY_TARGET'"
+if ! "$ADB" shell "su 0 sh -c 'grep $TWICKETS $TRICKY_TARGET 2>/dev/null'" | grep -q "$TWICKETS"; then
+  log "WARN: could not add $TWICKETS to TrickyStore targets; the app will fail v3.20 key attestation (see LEARNINGS.md)"
+fi
+
 # Skip if already present.
 if is_installed "$TWICKETS"; then
   log "Twickets already installed"
