@@ -5,7 +5,7 @@ on:
 
 permissions:
   contents: read
-      
+
 jobs:
   test:
     name: Test Keys
@@ -17,26 +17,28 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Pull keys
-        id: pull-keys
         run: |
-          if [ -z "$GIST_OWNER" ] || [ -z "$GIST_ID" ]; then
-            echo "GIST_OWNER / GIST_ID vars not configured"; exit 1
+          if [ -z "$GIST_TOKEN" ]; then
+            echo "GIST_TOKEN secret not configured"; exit 1
           fi
 
+          curl -fsSL \
+            -H "Authorization: token $GIST_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/gists/$GIST_ID" > gist.json
+
           mkdir -p output
-          curl -fsSL "https://gist.githubusercontent.com/$GIST_OWNER/$GIST_ID/raw/keys.json" > output/keys.json
+          curl -fsSL "$(jq -r '.files["keys.json"].raw_url' gist.json)" > output/keys.json
           echo "=== keys.json ==="
           cat output/keys.json
 
           jq -e '.attest.key_pem' output/keys.json > /dev/null \
             || { echo "keys.json has no attest section — did the Extract Keys run's attest extraction (04) fail?"; exit 1; }
-
         env:
           GIST_ID: ${{ vars.GIST_ID }}
-          GIST_OWNER: ${{ vars.GIST_OWNER }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
 
       - name: Single signed catalogue request
-        id: signed-catalogue-request
         run: |
           uv run \
             --with curl-cffi \
