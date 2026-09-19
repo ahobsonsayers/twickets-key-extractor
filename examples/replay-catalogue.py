@@ -5,15 +5,15 @@ Gets a challenge, signs client_data with the extracted attest key, sends one
 catalogue request, prints the response. That's it.
 
     pip install curl_cffi cryptography
-    python3 replay-catalogue.py keys.json attest-key.json
+    python3 replay-catalogue.py keys.json
 
 Anti-block rules (AGENTS.md) — read them first. Short version:
 - ONE run per session. No loops, no retries. A 403 means STOP, not retry.
 - Only run this on user's explicit go-ahead, and never while the keybox/IP
   is flagged (if the app's own requests 403, you are flagged — wait).
 
-keys.json comes from the pipeline (/data/output/keys.json); attest-key.json
-from extract-attest-key.py.
+keys.json comes from the pipeline (/data/output/keys.json): the 4 catalogue
+keys plus the `attest` section extracted by 04 and folded in by 05.
 """
 
 import base64
@@ -31,11 +31,11 @@ SDK_VERSION = "1.0.2"
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
     keys = json.load(open(sys.argv[1]))
-    attest = json.load(open(sys.argv[2]))
+    attest = keys["attest"]
 
     ua = keys["User-Agent"]
     site_key = keys["x-prosopo-site-key"]
@@ -85,10 +85,14 @@ def main():
 
     # 4. Done. Whatever it says, STOP here — never retry a 403.
     print("catalogue:", r.status_code)
-    print(r.text[:600])
+    try:
+        print(json.dumps(r.json(), indent=2))
+    except Exception:
+        print(r.text)
     if r.status_code == 403:
         print("\n403 = STOP. Diagnose offline (AGENTS.md): compare client_data")
         print("byte-for-byte against a harvested one, check key_id/key freshness.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
