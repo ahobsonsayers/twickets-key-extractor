@@ -97,10 +97,11 @@ for attempt in 1 2 3; do
 
   sleep 3
 
-  # Every tap below refires a catalogue request. Hard-cap them per attempt —
-  # hammering while the server is 403-ing is what got the keybox flagged
-  # (AGENTS.md). The loop normally breaks on iteration 1-2 anyway; the cap
-  # only bites in pathological states.
+  # Every tap below refires a catalogue request. Three probes with breathing
+  # room between them, then stop tapping — hammering while the server is
+  # 403-ing is what got the keybox flagged (AGENTS.md). If the token still
+  # hasn't minted, the outer attempt loop force-stops and relaunches the
+  # app for a fresh window.
   probes=0
   for _ in $(seq 1 40); do
     if grep -qE "$TOKEN_PATTERN" "$RAW" 2>/dev/null; then
@@ -108,9 +109,9 @@ for attempt in 1 2 3; do
       break
     fi
 
-    if [ "$probes" -ge 8 ]; then
+    if [ "$probes" -ge 3 ]; then
       # Cap reached; just wait out the loop for the in-flight request.
-      sleep 1
+      sleep 5
       continue
     fi
 
@@ -125,13 +126,13 @@ for attempt in 1 2 3; do
         # Find does nothing and no new request fires. Re-entering the tab via
         # Home->Find forces a fresh catalogue fetch, which carries the token.
         tap '^Home$' || true
-        sleep 1
+        sleep 5
         tap '^Find$' || true
         probes=$((probes + 1))
       fi
     fi
 
-    sleep 1
+    sleep 5
   done
 
   # Clean up the attached frida for this attempt.
