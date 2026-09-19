@@ -97,23 +97,29 @@ for attempt in 1 2 3; do
 
   sleep 3
 
-  retries=0
+  # Every tap below refires a catalogue request. Hard-cap them per attempt —
+  # hammering while the server is 403-ing is what got the keybox flagged
+  # (AGENTS.md). The loop normally breaks on iteration 1-2 anyway; the cap
+  # only bites in pathological states.
+  probes=0
   for _ in $(seq 1 40); do
     if grep -qE "$TOKEN_PATTERN" "$RAW" 2>/dev/null; then
       token_seen=1
       break
     fi
 
+    if [ "$probes" -ge 8 ]; then
+      # Cap reached; just wait out the loop for the in-flight request.
+      sleep 1
+      continue
+    fi
+
     # Drive the app to keep catalogue requests firing until the token mints.
     if ui_dump; then
       if ui_center 'Something went wrong' >/dev/null 2>&1; then
-        # Stream error screen has a "Try again" button; re-tap it. Cap the
-        # taps — each one refires a catalogue request, and hammering while
-        # the server is 403-ing is what got the keybox flagged (AGENTS.md).
-        if [ "$retries" -lt 3 ]; then
-          tap 'Try again' || true
-          retries=$((retries + 1))
-        fi
+        # Stream error screen has a "Try again" button; re-tap it.
+        tap 'Try again' || true
+        probes=$((probes + 1))
       else
         # If the app is already warm and sitting on a loaded Find stream, tapping
         # Find does nothing and no new request fires. Re-entering the tab via
@@ -121,6 +127,7 @@ for attempt in 1 2 3; do
         tap '^Home$' || true
         sleep 1
         tap '^Find$' || true
+        probes=$((probes + 1))
       fi
     fi
 
