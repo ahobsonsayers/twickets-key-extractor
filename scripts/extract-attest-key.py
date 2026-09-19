@@ -120,10 +120,17 @@ Java.perform(function () {
 
 def get_leaf_pubkey():
     """Attach frida to the running app, read the leaf cert's public key."""
-    out = adb("shell", f"pidof {APP}").strip()
-    pid = out.split()[0] if out else ""
-    if not pid:
-        die(f"{APP} is not running — launch it ONCE, wait ~15s, re-run this.")
+    # pidof exits 1 with no output when the app is dead (03's frida pkill
+    # can take the app down); one relaunch is safe — prefs make the app
+    # short-circuit attestation, so no new key gets minted.
+    out = adb("shell", f"pidof {APP}", check=False).strip()
+    if not out:
+        adb("shell", "am start -n co.twickets.droid/.splash.SplashActivity", check=False)
+        time.sleep(15)
+        out = adb("shell", f"pidof {APP}", check=False).strip()
+    if not out:
+        die(f"{APP} is not running — launch it once, wait ~15s, re-run this.")
+    pid = out.split()[0]
 
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
         f.write(LEAF_JS)
