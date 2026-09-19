@@ -18,8 +18,12 @@ stack.
 4. `03-open-twickets.sh`: launches the app normally, waits for it to settle,
    **attaches** frida (`-p`, not spawn — spawn crashes under translation), taps
    the **Find** bottom tab, and drives requests until the JWE token mints.
-5. `04-extract-keys.sh`: extracts the 4 request keys from the hook output,
-   writing `/data/output/keys.json`. Fails if any key is missing.
+5. `04-extract-attest.sh`: best-effort extraction of the v3.20 attestation
+   signing key (runs `extract-attest-key.py`, zero Twickets traffic) into
+   `attest.json`. Failure is non-fatal — the 4 catalogue keys still publish.
+6. `05-extract-keys.sh`: extracts the 4 request keys from the hook output,
+   folds `attest.json` in, and writes `/data/output/keys.json`. The final
+   gate — fails if any of the 4 keys is missing.
 
 **Status under v3.20**: the capture works end-to-end (all 4 keys land in
 keys.json) and — with the TrickyStore fix in `01` — the app itself passes key
@@ -163,23 +167,27 @@ Two hypotheses for where the key lives:
   `--brute` windows), verifying candidates against the leaf cert's
   public key.
 
-Built (in `examples/`, neither makes any request unless run):
+Built (in `scripts/`, wired into the pipeline as `04-extract-attest.sh`;
+neither makes any request unless run):
 
 - `extract-attest-key.py` — reads `key_id` from prefs + leaf pubkey via a
   frida attach, checks the keybox first (A), falls back to a memory
-  dump+scan (B). Zero Twickets traffic. Output: `attest-key.json`.
-- `replay-catalogue.py` — the super-basic prover: one key-challenge GET →
-  sign `client_data` → one catalogue GET → print. Uses `curl_cffi`
-  chrome131 (plain curl/urllib get WAF-blocked).
+  dump+scan (B). Zero Twickets traffic. Writes the result as an `attest`
+  section to `attest.json`; `05-extract-keys.sh` folds it into `keys.json`
+  (one file, all keys).
+- `examples/replay-catalogue.py` — the super-basic prover: one
+  key-challenge GET → sign `client_data` → one catalogue GET → print.
+  Uses `curl_cffi` chrome131_android (plain curl/urllib get
+  WAF-blocked). Takes the single `keys.json`.
 
 Runbook for the first live test (ONLY with the user's go-ahead, and only
 once unflagged — fresh boot / new IP first):
 
-1. Pipeline once (`01`–`04` → `keys.json`). Don't clear
+1. Pipeline once (`01`–`05` → `keys.json`, attest included). Don't clear
    `prosopo_protect` prefs afterwards — a re-attestation generates a new
    key and orphans the extracted one.
-2. Run `extract-attest-key.py` in the container (zero requests).
-3. Run `replay-catalogue.py` **once**. Read the verdict. STOP.
+2. (04 already extracted the attest key — zero requests.)
+3. Run `examples/replay-catalogue.py` **once**. Read the verdict. STOP.
 4. If 403 "Android key attestation verification failed": compare our
    `client_data` byte-for-byte against a real harvested one (passive
    hook) — compact JSON, this exact key order, path without query,
@@ -281,6 +289,15 @@ JSON/regex.
 - `03-open-twickets.sh` must not abort the chain (first-boot runs scripts under
   `set -e`, so a failing script stops before `touch /data/.first-boot-done`);
   `04` is the real gate for `keys.json`.
+- **A token in a request is NOT success.** When the keybox/IP is flagged the
+  app still sends its stored JWE — a token appears in the hook output while
+  the server 403s every request. That's how a blocked run used to go green
+  and publish dead keys. Since 2026-09-19 `03` also requires the Find
+  stream to actually render (no "Something went wrong" screen); on failure
+  it writes `/data/output/render-failed.txt` and `04` refuses to publish
+  keys.json (CI fails fast on the marker too). A "token seen but stream
+  rejected" failure is the signature of a server-side IP/keybox block —
+  do not retry or re-extract; wait it out or change IP/keybox.
 
 ## Environment quirks (this host)
 
@@ -317,18 +334,21 @@ python3 -c 'import json,urllib.request; ...'    # replay with /data/output/keys.
 - `scripts/capture-keys.js` — Frida hook (emit the 4 keys).
 - `scripts/02-start-frida.sh` — ensure frida-server is running, forward port.
 - `scripts/03-open-twickets.sh` — launch app, settle, attach frida, drive Find + verify.
-- `scripts/04-extract-keys.sh` — extract the 4 keys, write `/data/output/keys.json`.
+- `scripts/04-extract-attest.sh` — best-effort attest signing key → `attest.json`
+  (runs `extract-attest-key.py`; failure is non-fatal).
+- `scripts/05-extract-keys.sh` — extract the 4 keys + fold in `attest.json`,
+  write `/data/output/keys.json` (the final gate).
 - `scripts/01-install-twickets.sh` — gplaydl install + reboot (licensing
   bypass).
 - `frida-server` — downloaded at build time to `/opt/tools/frida-server` (not
   committed).
-- `/data/output/keys.json` — the 4 keys for the boot it was captured on.
+- `/data/output/keys.json` — all keys for the boot it was captured on.
 
 ## FAQ
 
 **Why does `/data/output/keys.json` have an empty token on the first boot?** Cold-boot
 race — the JWE isn't minted yet. `03-open-twickets.sh` launches the app,
-settles it, attaches frida, and re-taps until the token mints; `04-extract-keys.sh`
+settles it, attaches frida, and re-taps until the token mints; `05-extract-keys.sh`
 extracts it once present.
 
 **Do I need the Cookie header?** No. Through v3.19 the 4 keys alone replayed

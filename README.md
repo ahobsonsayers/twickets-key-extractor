@@ -149,8 +149,11 @@ Note: since v3.20 the app also signs every main-API request with hardware-backed
 4. `03-open-twickets.sh` launches the app, waits for the bottom-nav to appear,
    attaches **Frida**, opens the Find tab, and retries the page until the Prosopo
    integrity JWE is minted. Retries the whole cycle up to 3 times.
-5. `04-extract-keys.sh` parses the Frida output and writes the 4 keys to
-   `/data/output/keys.json`. Fails if any key is missing.
+5. `04-extract-attest.sh` extracts the v3.20 attestation signing key
+   (best-effort, zero Twickets traffic) into `attest.json`.
+6. `05-extract-keys.sh` parses the Frida output, folds `attest.json` in, and
+   writes all keys to `/data/output/keys.json`. Fails if any of the 4
+   catalogue keys is missing.
 
 The Frida hook (`scripts/capture-keys.js`) intercepts requests and emits the keys once a request carries the
 JWE - which is what we use as the signal that all 4 keys are available. It hooks the app's own interceptors to find the live request pipeline at runtime, so it survives the obfuscated-class renaming Twickets ships with each release.
