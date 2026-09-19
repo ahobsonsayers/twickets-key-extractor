@@ -5,7 +5,8 @@ set -euo pipefail
 # shellcheck source=scripts/common.sh
 source /opt/scripts/common.sh
 
-if python3 /opt/scripts/extract-attest-key.py; then
+# -u: unbuffered — early prints survive even if python is killed later.
+if timeout 300 python3 -u /opt/scripts/extract-attest-key.py; then
   log "Attest key extracted"
 else
   log "WARN: attest key extraction failed — continuing without it"

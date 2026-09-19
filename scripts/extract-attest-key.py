@@ -130,7 +130,10 @@ def get_leaf_pubkey():
         js = f.name
 
     cmd = f"{FRIDA_CMD} -H {FRIDA_HOST} -p {pid} -l {js}".split()
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except FileNotFoundError:
+        die(f"frida CLI not found ({FRIDA_CMD.split()[0]}) — set FRIDA_CMD to a working frida")
 
     leaf_b64 = None
     deadline = time.time() + 25
@@ -145,7 +148,7 @@ def get_leaf_pubkey():
                 continue
             payload = line.split("message: ", 1)[1].replace(" data: None", "").strip()
             try:
-                inner = ast.loads(payload)["payload"]["payload"]
+                inner = ast.literal_eval(payload)["payload"]["payload"]
             except Exception:
                 continue
             if inner.get("type") == "leaf":
@@ -210,6 +213,7 @@ def dump_candidates():
     for pid, name in procs:
         maps = adb_shell(f"cat /proc/{pid}/maps")
         ranges = []
+        total = 0
         for line in maps.splitlines():
             # 7f8b00000000-7f8b00200000 rw-p 00000000 00:00 0  [anon:...]
             m = re.match(r"([0-9a-f]+)-([0-9a-f]+) (....) \S+ \S+ \S+\s*(\S*)", line)
@@ -221,10 +225,15 @@ def dump_candidates():
             if path and not (path.startswith("[heap]") or path.startswith("[anon:") or path.startswith("[stack")):
                 continue
             size = end - start
-            if size > 64 * 1024 * 1024:
+            # Small cap: the key is minted early and lives in small heap/anon
+            # regions; giant ranges OOM-kill the emulator (CI exit 1 at 04).
+            if size > 16 * 1024 * 1024:
                 continue
+            total += size
+            if total > 64 * 1024 * 1024:
+                break
             ranges.append((start, size))
-            if len(ranges) >= 40:  # cap total work
+            if len(ranges) >= 16:  # cap total work
                 break
 
         dumps = []
