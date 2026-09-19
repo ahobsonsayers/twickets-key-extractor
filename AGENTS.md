@@ -33,7 +33,10 @@ Rules:
 2. **Manual live tests: at most ONE catalogue request (plus its single
    key-challenge GET) per session, and only with the user's explicit
    go-ahead.** One run of `examples/replay-catalogue.py` counts as exactly
-   this.
+   this — and so does one dispatch of the manual `test-keys.yaml` workflow
+   (it is pure off-device signing: pulls published keys from the gist and
+   fires the single signed replay). Never dispatch it twice in a session,
+   and never back-to-back.
 3. **Never re-run the pipeline to "check something".** The pipeline is
    gentle by design: launch once, drive the app once, capture once,
    extract once. If it failed, diagnose offline (frida traces, logs,
