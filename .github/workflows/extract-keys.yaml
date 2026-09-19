@@ -65,6 +65,8 @@ jobs:
               echo "FIRST-BOOT DIED (container still up)"; docker logs twickets-key-extractor | tail -n 80; exit 1
             fi
 
+            docker logs --since 21s twickets-key-extractor 2>&1 | tail -n 20
+
             sleep 20
             i=$((i+1))
           done
@@ -72,9 +74,18 @@ jobs:
           [ -f output/keys.json ] || { echo "keys.json not produced"; docker logs twickets-key-extractor; exit 1; }
 
       - name: Echo output
+        if: always()
         run: |
           echo "=== container logs ==="
           docker logs twickets-key-extractor
+
+      - name: Upload output
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: run-output
+          path: output/
+          if-no-files-found: ignore
 
       - name: Update gist
         if: vars.GIST_ID != ''
