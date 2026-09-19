@@ -1,16 +1,26 @@
 // Capture the 4 Twickets catalogue API keys and emit them as JSON.
 //
-// The 3 header keys are added once the integrity JWE is generated, possibly on
-// a non-catalogue request, so watch all requests carrying the token. api_key
-// is a query param; any token request also carries User-Agent + site-key.
-// (Request.toString() redacts only Cookie, which the endpoint doesn't need.)
+// R8 obfuscated names rotate every release (the chain class ha0.i in v3.19
+// no longer exists in v3.20), so nothing obfuscated is hardcoded here: hook
+// the app's own un-obfuscated interceptors, take the live OkHttp chain they
+// receive, then hook that chain class's proceed-shaped methods. When a
+// request's toString() carries the integrity JWE, all 4 keys are ready.
+// (toString() redacts only Cookie, which the endpoint doesn't need.)
 
-// Header keys to capture from each request's toString() block.
+// Header keys to capture from each request's toString() block. The sdk
+// version is new in v3.20 (static, on all protect + main-API requests);
+// keys.json still carries only the 4 proven replay keys.
 const KEYS = [
 	"User-Agent",
 	"x-prosopo-site-key",
 	"x-prosopo-android-integrity-token",
+	"x-prosopo-android-sdk-version",
 ];
+
+// The chain is an R8-tiny name ("ha0.i", "c60.p") unless okhttp is kept.
+const isChainClass = (name) =>
+	/^[a-z][a-z0-9]{0,4}\.[a-zA-Z][a-zA-Z0-9]{0,4}$/.test(name) ||
+	name.startsWith("okhttp3.");
 
 function extract(reqStr) {
 	const keys = {};
@@ -36,35 +46,158 @@ function extract(reqStr) {
 	return keys;
 }
 
-Java.perform(() => {
-	try {
-		// ha0.i is the obfuscated OkHttp Chain; .f() is proceed(request).
-		const Chain = Java.use("ha0.i");
-		Chain.f.overload("mz.p2").implementation = function (req) {
-			try {
-				const urlStr = req.toString();
-				const hasToken = urlStr.includes("x-prosopo-android-integrity-token");
+let chainHooked = false;
+let chainFailures = 0;
 
-				// Diagnostic: log every call so we can see if the hook is live
-				// and what requests actually look like.
-				send({
-					type: "debug",
-					payload: `${hasToken ? "TOKEN" : "no-token"} ${urlStr}`,
-				});
+function capture(urlStr) {
+	const hasToken = urlStr.includes("x-prosopo-android-integrity-token");
 
-				// Emit only when the integrity JWE is present — all 4 keys are ready.
-				if (hasToken) {
-					send({ type: "keys", payload: extract(urlStr) });
-				}
-			} catch (_e) {
-				// ignore parse errors on requests mid-build
-			}
+	// Diagnostic: log every request so we can see if the hook is live.
+	send({
+		type: "debug",
+		payload: `${hasToken ? "TOKEN" : "no-token"} ${urlStr}`,
+	});
 
-			return this.f(req);
-		};
-
-		send({ type: "status", payload: "hooked ha0.i.f" });
-	} catch (_e) {
-		send({ type: "status", payload: `outer ${_e}` });
+	if (hasToken) {
+		send({ type: "keys", payload: extract(urlStr) });
 	}
+}
+
+// Hook every instance method of the live chain's class shaped like
+// proceed(request): one param, non-void return. The Request{ check skips
+// any argument that isn't an okhttp Request.
+function hookChain(chain) {
+	const className = String(chain.$className);
+	const Chain = Java.use(className);
+	const STATIC = 0x8;
+
+	let hookedCount = 0;
+	const methods = Chain.class.getDeclaredMethods();
+	for (let i = 0; i < methods.length; i++) {
+		let name;
+		let param;
+		try {
+			const m = methods[i];
+			const params = m.getParameterTypes();
+			if (params.length !== 1 || (m.getModifiers() & STATIC) !== 0) continue;
+			if (String(m.getReturnType().getName()) === "void") continue;
+			name = String(m.getName());
+			param = String(params[0].getName());
+		} catch (_e) {
+			// Unloaded parameter types can't be reflected past; skip.
+			continue;
+		}
+
+		try {
+			Chain[name].overload(param).implementation = function (req) {
+				try {
+					const urlStr = req.toString();
+					if (urlStr.startsWith("Request{method=")) capture(urlStr);
+				} catch (_e) {
+					// ignore non-request args and requests mid-build
+				}
+
+				return this[name](req);
+			};
+			hookedCount++;
+		} catch (_e) {
+			// skip methods frida can't overload (synthetic/bridge)
+		}
+	}
+
+	if (hookedCount === 0) {
+		throw new Error(`no proceed candidates in ${className}`);
+	}
+
+	send({
+		type: "status",
+		payload: `hooked chain ${className} (${hookedCount} candidates)`,
+	});
+}
+
+// The co.twickets.droid.networking.interceptor package is kept by R8
+// (unrenamed v3.19 -> v3.20); their 1-param instance method is intercept().
+function hookBootstrapClass(className) {
+	const Cls = Java.use(className);
+	const STATIC = 0x8;
+	let hookedAny = false;
+	const methods = Cls.class.getDeclaredMethods();
+	for (let i = 0; i < methods.length; i++) {
+		let name;
+		let param;
+		try {
+			const m = methods[i];
+			const params = m.getParameterTypes();
+			if (params.length !== 1 || (m.getModifiers() & STATIC) !== 0) continue;
+			if (String(m.getReturnType().getName()) === "void") continue;
+			name = String(m.getName());
+			param = String(params[0].getName());
+		} catch (_e) {
+			continue;
+		}
+
+		try {
+			Cls[name].overload(param).implementation = function (chain) {
+				const runtimeName = chain ? String(chain.$className) : "";
+				if (!chainHooked && isChainClass(runtimeName)) {
+					try {
+						hookChain(chain);
+						chainHooked = true;
+					} catch (_e) {
+						// A structural failure won't heal; stop spamming after 3 tries.
+						chainHooked = ++chainFailures >= 3;
+						send({ type: "status", payload: `chain ${_e}` });
+					}
+				}
+
+				return this[name](chain);
+			};
+			hookedAny = true;
+		} catch (_e) {
+			// skip methods frida can't overload (synthetic/bridge)
+		}
+	}
+
+	send({
+		type: "status",
+		payload: `hooked ${className}${hookedAny ? "" : " (no intercept candidates)"}`,
+	});
+
+	return hookedAny;
+}
+
+function hookBootstrap() {
+	let classHooked = false;
+	for (const cls of [
+		"co.twickets.droid.networking.interceptor.ApiKeyInterceptor",
+		"co.twickets.droid.networking.interceptor.UseAgentInterceptor",
+	]) {
+		try {
+			if (hookBootstrapClass(cls)) classHooked = true;
+		} catch (_e) {
+			send({ type: "status", payload: `bootstrap ${_e}` });
+		}
+	}
+
+	return classHooked;
+}
+
+Java.perform(() => {
+	// The interceptors load with the networking stack; retry in case frida
+	// attached before that happened.
+	let attempts = 0;
+	const tryHook = () => {
+		if (hookBootstrap()) return;
+
+		if (++attempts < 3) {
+			setTimeout(tryHook, 3000);
+		} else {
+			send({
+				type: "status",
+				payload: "outer Error: no bootstrap interceptor found",
+			});
+		}
+	};
+
+	tryHook();
 });
