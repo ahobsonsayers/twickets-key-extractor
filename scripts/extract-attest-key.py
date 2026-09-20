@@ -33,9 +33,6 @@ import os
 import re
 import struct
 import subprocess
-import sys
-import tempfile
-import time
 from datetime import datetime, timezone
 
 from cryptography import x509
@@ -50,8 +47,6 @@ ADB = os.environ.get(
     else "adb",
 )
 SERIAL = os.environ.get("ADB_SERIAL", "emulator-5554")
-FRIDA_CMD = os.environ.get("FRIDA_CMD", "frida")
-FRIDA_HOST = os.environ.get("FRIDA_HOST", "127.0.0.1:27042")
 APP = "co.twickets.droid"
 ALIAS = "prosopo_attest_key"
 PREFS = "/data/data/co.twickets.droid/shared_prefs/prosopo_protect.xml"
@@ -104,20 +99,6 @@ def read_key_id():
 
 # ---------------------------------------------------------------- leaf pubkey
 
-LEAF_JS = r"""
-Java.perform(function () {
-  try {
-    var ks = Java.use('java.security.KeyStore').getInstance('AndroidKeyStore');
-    ks.load(null, null);
-    var chain = ks.getCertificateChain('prosopo_attest_key');
-    if (!chain || chain.length === 0) { send({type:'err', payload:'alias not found'}); return; }
-    var b64 = Java.use('android.util.Base64').encodeToString(chain[0].getEncoded(), 2);
-    send({type:'leaf', payload: b64});
-  } catch (e) { send({type:'err', payload: String(e)}); }
-});
-"""
-
-
 LEAF_FILE = os.environ.get("LEAF_FILE", "/data/output/leaf.json")
 
 
@@ -132,85 +113,6 @@ def leaf_from_03():
         return cert.public_key()
     except Exception:
         return None
-
-
-def get_leaf_pubkey():
-    """Attach frida to the running app, read the leaf cert's public key."""
-    # Leaked frida CLI sessions (e.g. 03's still-attached hook, or a previous
-    # 04 run) block a new attach indefinitely. The CLIs run in THIS container
-    # (uv/frida), not on the device, so kill them here; frida-server (on
-    # device, different cmdline) survives.
-    subprocess.run(
-        ["pkill", "-9", "-f", "frida .*-H 127.0.0.1:27042"], check=False,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(1)
-
-    # pidof exits 1 with no output when the app is dead (03's frida pkill
-    # can take the app down); one relaunch is safe — prefs make the app
-    # short-circuit attestation, so no new key gets minted.
-    out = adb("shell", f"pidof {APP}", check=False).strip()
-    if not out:
-        adb("shell", "am start -n co.twickets.droid/.splash.SplashActivity", check=False)
-        time.sleep(15)
-        out = adb("shell", f"pidof {APP}", check=False).strip()
-    if not out:
-        die(f"{APP} is not running — launch it once, wait ~15s, re-run this.")
-    pid = out.split()[0]
-
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
-        f.write(LEAF_JS)
-        js = f.name
-
-    cmd = f"{FRIDA_CMD} -H {FRIDA_HOST} -p {pid} -l {js}".split()
-    try:
-        # Unbuffered binary pipe: select() watches the raw fd, so a buffered
-        # text wrapper could hide already-arrived lines from it.
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
-    except FileNotFoundError:
-        die(f"frida CLI not found ({FRIDA_CMD.split()[0]}) — set FRIDA_CMD to a working frida")
-
-    leaf_b64 = None
-    deadline = time.time() + 90
-    try:
-        import select
-
-        fd = p.stdout.fileno()
-        buf = b""
-        while time.time() < deadline:
-            r, _, _ = select.select([fd], [], [], 1.0)
-            if r:
-                chunk = os.read(fd, 65536)
-                if chunk:
-                    buf += chunk
-            if p.poll() is not None and not r:
-                break
-            while b"\n" in buf:
-                line, buf = buf.split(b"\n", 1)
-                text = line.decode(errors="replace")
-                if "message: " not in text:
-                    continue
-                payload = text.split("message: ", 1)[1].replace(" data: None", "").strip()
-                try:
-                    inner = ast.literal_eval(payload)["payload"]
-                except Exception:
-                    continue
-                if not isinstance(inner, dict):
-                    continue
-                if inner.get("type") == "leaf":
-                    leaf_b64 = inner["payload"]
-                    break
-                if inner.get("type") == "err":
-                    die(f"frida could not read the keychain: {inner['payload']}")
-            if leaf_b64:
-                break
-    finally:
-        p.kill()
-        os.unlink(js)
-
-    if not leaf_b64:
-        die("no leaf cert captured from frida (app died? attach too early?)")
-    cert = x509.load_der_x509_certificate(base64.b64decode(leaf_b64))
-    return cert.public_key()
 
 
 def pub_bytes(key):
@@ -385,7 +287,12 @@ def main():
     print(f"  key_attest_key_id = {key_id}")
 
     print("Attaching frida to read the leaf cert's public key ...")
-    leaf_key = leaf_from_03() or get_leaf_pubkey()
+    leaf_key = leaf_from_03()
+    if leaf_key is None:
+        die(
+            f"no leaf cert from 03's capture ({LEAF_FILE} missing or "
+            "unreadable) — skipping attest extraction (frida fallback removed)"
+        )
     leaf_pub = pub_bytes(leaf_key)
     print(f"  leaf pubkey (uncompressed) = {leaf_pub.hex()[:24]}...")
 

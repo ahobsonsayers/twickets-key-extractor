@@ -147,7 +147,7 @@ for attempt in 1 2 3; do
     # hook sends it one-shot alongside the keys. 04 then never needs its own
     # frida attach.
     leaf_b64="$(grep -m1 "type': 'leaf'" "$RAW" |
-      grep -o "payload': '[A-Za-z0-9+/=]*'" | cut -d"'" -f4)" || leaf_b64=""
+      grep -o "payload': '[A-Za-z0-9+/=]*'" | cut -d"'" -f3)" || leaf_b64=""
 
     if [ -n "$leaf_b64" ]; then
       printf '%s' "$leaf_b64" >/data/output/leaf.json
