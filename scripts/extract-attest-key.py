@@ -33,6 +33,7 @@ import os
 import re
 import struct
 import subprocess
+import sys
 from datetime import datetime, timezone
 
 from cryptography import x509
@@ -281,12 +282,28 @@ def scan_dump(start, data, leaf_pub):
 
 # ---------------------------------------------------------------- main
 
+RAW_FILE = os.environ.get("RAW_FILE", "/data/output/attest-raw.txt")
+
+
+def key_from_hook(leaf_pub):
+    """Primary path: 02b's generate-time hook wrote the b64 PKCS8."""
+    if not os.path.exists(RAW_FILE):
+        return None
+    try:
+        der = base64.b64decode(open(RAW_FILE).read().strip())
+        key = serialization.load_der_private_key(der, password=None)
+        return key
+    except Exception as e:
+        print(f"  generate-hook capture unreadable: {e}")
+        return None
+
+
 def main():
     print("Reading prefs for key_id ...")
     key_id = read_key_id()
     print(f"  key_attest_key_id = {key_id}")
 
-    print("Attaching frida to read the leaf cert's public key ...")
+    print("Reading leaf cert from 03's capture ...")
     leaf_key = leaf_from_03()
     if leaf_key is None:
         die(
@@ -296,12 +313,21 @@ def main():
     leaf_pub = pub_bytes(leaf_key)
     print(f"  leaf pubkey (uncompressed) = {leaf_pub.hex()[:24]}...")
 
+    # Primary: the generate-time hook (02b) captured the PKCS8 at keygen.
+    print("Checking generate-hook capture ...")
+    k = key_from_hook(leaf_pub)
+    if k:
+        if pub_bytes(k.public_key()) == leaf_pub:
+            print("  MATCH: generate-time capture matches the leaf cert")
+            return emit(k, key_id, "generate-hook", leaf_pub)
+        print("  captured key does NOT match the leaf cert — ignoring")
+
     # Hypothesis A: TrickyStore generate-mode hands the app the keybox key.
     print("Checking TrickyStore keybox for a matching key ...")
-    for k in load_keybox_ec_keys():
-        if pub_bytes(k.public_key()) == leaf_pub:
+    for kb in load_keybox_ec_keys():
+        if pub_bytes(kb.public_key()) == leaf_pub:
             print("  MATCH: the app's attest key IS a keybox key (hypothesis A)")
-            return emit(k, key_id, "keybox", leaf_pub)
+            return emit(kb, key_id, "keybox", leaf_pub)
 
     # Hypothesis B: app-generated key; the scalar lives in keystore daemon memory.
     print("No keybox match — dumping keystore/keymint process memory ...")
@@ -315,10 +341,9 @@ def main():
 
     die(
         "key not found.\n"
-        "Try once more right after a single app relaunch (key material is\n"
-        "freshest then), or pass --brute as a last resort.\n"
-        "Remember the anti-block rules (AGENTS.md): no request spam, one\n"
-        "relaunch per session, never re-launch in a loop."
+        "The generate-time hook (02b) had 90s from frida-server start to\n"
+        "catch the keygen; if it missed, relaunch the app once (AGENTS.md\n"
+        "anti-block rules: no request spam, one relaunch per session)."
     )
 
 

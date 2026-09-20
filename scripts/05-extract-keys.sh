@@ -80,11 +80,13 @@ cat >"$TMP" <<EOF
 EOF
 
 # Written via mv: CI polls for keys.json and must never see it half-built.
-if jq -e '.attest.key_pem' "$ATTEST" >/dev/null 2>&1; then
-  jq --slurpfile a "$ATTEST" '. + {attest: $a[0].attest}' "$TMP" >"$TMP.2" && mv "$TMP.2" "$TMP"
-else
-  log "WARN: no valid attest.json — publishing keys.json without the attest section"
+# The attest key is REQUIRED — refuse to publish without it.
+if ! jq -e '.attest.key_pem' "$ATTEST" >/dev/null 2>&1; then
+  log "ERROR: no valid attest.json ($ATTEST) — attest key is REQUIRED for the run"
+  cat /data/output/attest-extract.log 2>/dev/null || true
+  exit 1
 fi
+jq --slurpfile a "$ATTEST" '. + {attest: $a[0].attest}' "$TMP" >"$TMP.2" && mv "$TMP.2" "$TMP"
 mv "$TMP" "$OUT"
 
 cat "$OUT"
