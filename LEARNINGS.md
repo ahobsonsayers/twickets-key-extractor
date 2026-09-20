@@ -15,13 +15,14 @@ stack.
    secret), then reboots so **BetterKnownInstalled** re-marks it as a Play
    Store install.
 3. `02-start-frida.sh`: ensures frida-server is running and forwards its port.
-4. `03-open-twickets.sh`: launches the app normally, waits for it to settle,
+4. `04-open-twickets.sh`: launches the app normally, waits for it to settle,
    **attaches** frida (`-p`, not spawn — spawn crashes under translation), taps
    the **Find** bottom tab, and drives requests until the JWE token mints.
-5. `04-extract-attest.sh`: best-effort extraction of the v3.20 attestation
-   signing key (runs `extract-attest-key.py`, zero Twickets traffic) into
-   `attest.json`. Failure is non-fatal — the 4 catalogue keys still publish.
-6. `05-extract-keys.sh`: extracts the 4 request keys from the hook output,
+5. `05-extract-attest.sh`: extracts the v3.20 attestation signing key
+   (runs `extract-attest-key.py`, zero Twickets traffic) into `attest.json`.
+   The generate-time hook in `03-hook-attest.sh` captures the key at keygen;
+   this step composes and verifies it. Required — the run fails without it.
+6. `06-extract-keys.sh`: extracts the 4 request keys from the hook output,
    folds `attest.json` in, and writes `/data/output/keys.json`. The final
    gate — fails if any of the 4 keys is missing.
 
@@ -167,13 +168,13 @@ Two hypotheses for where the key lives:
   `--brute` windows), verifying candidates against the leaf cert's
   public key.
 
-Built (in `scripts/`, wired into the pipeline as `04-extract-attest.sh`;
+Built (in `scripts/`, wired into the pipeline as `05-extract-attest.sh`;
 neither makes any request unless run):
 
 - `extract-attest-key.py` — reads `key_id` from prefs + leaf pubkey via a
   frida attach, checks the keybox first (A), falls back to a memory
   dump+scan (B). Zero Twickets traffic. Writes the result as an `attest`
-  section to `attest.json`; `05-extract-keys.sh` folds it into `keys.json`
+  section to `attest.json`; `06-extract-keys.sh` folds it into `keys.json`
   (one file, all keys).
 - `examples/replay-catalogue.py` — the super-basic prover: one
   key-challenge GET → sign `client_data` → one catalogue GET → print.
@@ -286,7 +287,7 @@ JSON/regex.
   Frida output until a non-empty token appears (tapping "Try again" to keep
   requests firing). The whole cycle retries up to 3 times because the attached
   app can crash at a cold boot under NDK translation.
-- `03-open-twickets.sh` must not abort the chain (first-boot runs scripts under
+- `04-open-twickets.sh` must not abort the chain (first-boot runs scripts under
   `set -e`, so a failing script stops before `touch /data/.first-boot-done`);
   `04` is the real gate for `keys.json`.
 - **A token in a request is NOT success.** When the IP is flagged the
@@ -333,10 +334,10 @@ python3 -c 'import json,urllib.request; ...'    # replay with /data/output/keys.
 
 - `scripts/capture-keys.js` — Frida hook (emit the 4 keys).
 - `scripts/02-start-frida.sh` — ensure frida-server is running, forward port.
-- `scripts/03-open-twickets.sh` — launch app, settle, attach frida, drive Find + verify.
-- `scripts/04-extract-attest.sh` — best-effort attest signing key → `attest.json`
-  (runs `extract-attest-key.py`; failure is non-fatal).
-- `scripts/05-extract-keys.sh` — extract the 4 keys + fold in `attest.json`,
+- `scripts/04-open-twickets.sh` — launch app, settle, attach frida, drive Find + verify.
+- `scripts/05-extract-attest.sh` — attest signing key → `attest.json`
+  (runs `extract-attest-key.py`; required — the run fails without it).
+- `scripts/06-extract-keys.sh` — extract the 4 keys + fold in `attest.json`,
   write `/data/output/keys.json` (the final gate).
 - `scripts/01-install-twickets.sh` — gplaydl install + reboot (licensing
   bypass).
@@ -347,8 +348,8 @@ python3 -c 'import json,urllib.request; ...'    # replay with /data/output/keys.
 ## FAQ
 
 **Why does `/data/output/keys.json` have an empty token on the first boot?** Cold-boot
-race — the JWE isn't minted yet. `03-open-twickets.sh` launches the app,
-settles it, attaches frida, and re-taps until the token mints; `05-extract-keys.sh`
+race — the JWE isn't minted yet. `04-open-twickets.sh` launches the app,
+settles it, attaches frida, and re-taps until the token mints; `06-extract-keys.sh`
 extracts it once present.
 
 **Do I need the Cookie header?** No. Through v3.19 the 4 keys alone replayed

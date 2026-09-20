@@ -146,12 +146,12 @@ Note: since v3.20 the app also signs every main-API request with hardware-backed
    as a Play Store install - bypassing the app's Play Automatic Integrity
    Protection.
 3. `02-start-frida.sh` ensures frida-server is running and forwards its port.
-4. `03-open-twickets.sh` launches the app, waits for the bottom-nav to appear,
+4. `04-open-twickets.sh` launches the app, waits for the bottom-nav to appear,
    attaches **Frida**, opens the Find tab, and retries the page until the Prosopo
    integrity JWE is minted. Retries the whole cycle up to 3 times.
-5. `04-extract-attest.sh` extracts the v3.20 attestation signing key
-   (best-effort, zero Twickets traffic) into `attest.json`.
-6. `05-extract-keys.sh` parses the Frida output, folds `attest.json` in, and
+5. `05-extract-attest.sh` extracts the v3.20 attestation signing key
+   (zero Twickets traffic) into `attest.json` — required for the run.
+6. `06-extract-keys.sh` parses the Frida output, folds `attest.json` in, and
    writes all keys to `/data/output/keys.json`. Fails if any of the 4
    catalogue keys is missing.
 

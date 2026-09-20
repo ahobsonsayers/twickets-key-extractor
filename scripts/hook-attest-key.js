@@ -1,5 +1,5 @@
 // Generate-time attest-key hook. Runs INSIDE keystore2 (attached by
-// 02b-hook-attest.sh before the app's first launch). TEESimulator's
+// 03-hook-attest.sh before the app's first launch). TEESimulator's
 // KeyMintSecurityLevelInterceptor holds every generated key in a
 // GeneratedKeyInfo (KeyPair, nspace, response); the constructor fires at
 // generatedKeys.put() time for the three keygen branches. We grab the
