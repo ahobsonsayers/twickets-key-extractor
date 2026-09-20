@@ -34,7 +34,7 @@ HOOK_PID=$!
 armed=0
 deadline=$((SECONDS + 30))
 while [ "$SECONDS" -lt "$deadline" ]; do
-  if grep -q "hook armed on GeneratedKeyInfo" "$RAW" 2>/dev/null; then
+  if grep -qE "hook armed on (GeneratedKeyInfo|Signer)" "$RAW" 2>/dev/null; then
     armed=1
     break
   fi
