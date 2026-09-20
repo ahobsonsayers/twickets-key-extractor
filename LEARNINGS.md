@@ -20,8 +20,10 @@ stack.
    the **Find** bottom tab, and drives requests until the JWE token mints.
 5. `05-extract-attest.sh`: extracts the v3.20 attestation signing key
    (runs `extract-attest-key.py`, zero Twickets traffic) into `attest.json`.
-   The generate-time hook in `03-hook-attest.sh` captures the key at keygen;
-   this step composes and verifies it. Required — the run fails without it.
+   The hook in `03-hook-attest.sh` captures the key at keygen (GeneratedKeyInfo)
+   AND at every sign op (Signer — fires even when the app is already
+   attested); this step composes and verifies it. Required — the run fails
+   without it.
 6. `06-extract-keys.sh`: extracts the 4 request keys from the hook output,
    folds `attest.json` in, and writes `/data/output/keys.json`. The final
    gate — fails if any of the 4 keys is missing.
