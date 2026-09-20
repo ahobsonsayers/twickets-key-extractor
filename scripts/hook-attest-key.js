@@ -11,44 +11,58 @@
 // the runner composes the final JSON.
 
 function findTeeLoader() {
-  let found = null;
-  Java.enumerateClassLoadersSync().forEach(function (loader) {
-    if (found) return;
-    try {
-      loader.loadClass("org.matrix.TEESimulator.interception.keystore.shim.KeyMintSecurityLevelInterceptor");
-      found = loader;
-    } catch (e) { }
-  });
-  return found;
+	let found = null;
+	Java.enumerateClassLoadersSync().forEach((loader) => {
+		if (found) return;
+		try {
+			loader.loadClass(
+				"org.matrix.TEESimulator.interception.keystore.shim.KeyMintSecurityLevelInterceptor",
+			);
+			found = loader;
+		} catch (_e) {}
+	});
+	return found;
 }
 
-Java.perform(function () {
-  let loader = findTeeLoader();
-  if (!loader) {
-    // The module's injector may not have finished hooking keystore2 yet.
-    send({ type: "status", payload: "TEESimulator classloader not found yet" });
-    return;
-  }
-  const factory = Java.ClassFactory.get(loader);
+// The daemon (app_process) has no package data dir, so Java.perform's init
+// path throws — defer the arm logic to a timer instead; the Java bridge
+// lazily initializes fine from there.
+let armed = false;
+let tries = 0;
+const timer = setInterval(() => {
+	tries += 1;
+	if (armed || tries > 300) {
+		clearInterval(timer);
+		if (!armed)
+			send({
+				type: "status",
+				payload: "TEESimulator classloader never appeared",
+			});
+		return;
+	}
+	const loader = findTeeLoader();
+	if (!loader) return;
+	armed = true;
+	clearInterval(timer);
+	const factory = Java.ClassFactory.get(loader);
 
-  const Info = factory.use(
-    "org.matrix.TEESimulator.interception.keystore.shim.KeyMintSecurityLevelInterceptor$GeneratedKeyInfo"
-  );
+	const Info = factory.use(
+		"org.matrix.TEESimulator.interception.keystore.shim.KeyMintSecurityLevelInterceptor$GeneratedKeyInfo",
+	);
 
-  Info.$init.overload(
-    "java.security.KeyPair",
-    "long",
-    "android.system.keystore2.KeyEntryResponse"
-  ).implementation = function (keyPair, nspace, response) {
-    this.$init(keyPair, nspace, response);
-    try {
-      const enc = keyPair.getPrivate().getEncoded();
-      const b64 = Java.use("android.util.Base64")
-        .encodeToString(enc, 2);
-      send({ type: "attest", payload: b64, nspace: String(nspace) });
-    } catch (e) {
-      send({ type: "status", payload: "extract failed: " + e });
-    }
-  };
-  send({ type: "status", payload: "hook armed on GeneratedKeyInfo$init" });
-});
+	Info.$init.overload(
+		"java.security.KeyPair",
+		"long",
+		"android.system.keystore2.KeyEntryResponse",
+	).implementation = function (keyPair, nspace, response) {
+		this.$init(keyPair, nspace, response);
+		try {
+			const enc = keyPair.getPrivate().getEncoded();
+			const b64 = Java.use("android.util.Base64").encodeToString(enc, 2);
+			send({ type: "attest", payload: b64, nspace: String(nspace) });
+		} catch (e) {
+			send({ type: "status", payload: `extract failed: ${e}` });
+		}
+	};
+	send({ type: "status", payload: "hook armed on GeneratedKeyInfo$init" });
+}, 500);

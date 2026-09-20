@@ -15,9 +15,8 @@ automatically; it drives the container's adb and needs `cryptography`):
 
     05-extract-attest.sh   # part of the numbered pipeline
 
-Prereqs: the app is attested (key_id in prefs — run the pipeline up to 03
-first) and the app has been relaunched recently (keygen happens once at app
-start, so key material is freshest in memory right after a launch). Do NOT
+Prereqs: the pipeline ran 03 (hook armed) and 04 (app attested — key_id in
+prefs; keygen fires at 04's first launch and the hook catches it). Do NOT
 clear prosopo_protect prefs — a fresh attestation generates a NEW key and
 orphans this one.
 
@@ -32,6 +31,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 from cryptography import x509
@@ -119,19 +119,42 @@ def pub_bytes(key):
 # ---------------------------------------------------------------- main
 
 RAW_FILE = os.environ.get("RAW_FILE", "/data/output/attest-raw.txt")
+HOOK_LOG = "/tmp/attest-hook.log"
 
 
 def key_from_hook(leaf_pub):
-    """Primary path: 03-hook-attest's generate-time hook wrote the b64 PKCS8."""
-    if not os.path.exists(RAW_FILE):
-        return None
-    try:
-        der = base64.b64decode(open(RAW_FILE).read().strip())
-        key = serialization.load_der_private_key(der, password=None)
-        return key
-    except Exception as e:
-        print(f"  generate-hook capture unreadable: {e}")
-        return None
+    """Primary path: the generate-time hook (03, still attached in the
+    background) captured the PKCS8 at keygen. The capture can land any
+    moment after 04's first launch, so poll the hook log briefly."""
+    deadline = 60
+    print(f"  waiting up to {deadline}s for the hook's capture ...")
+    while deadline > 0:
+        b64 = ""
+        if os.path.exists(RAW_FILE) and os.path.getsize(RAW_FILE) > 0:
+            b64 = open(RAW_FILE).read().strip()
+        elif os.path.exists(HOOK_LOG):
+            line = ""
+            with open(HOOK_LOG, errors="replace") as f:
+                for l in f:
+                    if "'type': 'attest'" in l:
+                        line = l
+                        break
+            if line:
+                m = re.search(r"payload': '([A-Za-z0-9+/=]+)'", line)
+                if m:
+                    b64 = m.group(1)
+        if b64:
+            try:
+                key = serialization.load_der_private_key(
+                    base64.b64decode(b64), password=None
+                )
+                return key
+            except Exception as e:
+                print(f"  generate-hook capture unreadable: {e}")
+                return None
+        time.sleep(2)
+        deadline -= 2
+    return None
 
 
 def main():
@@ -160,9 +183,9 @@ def main():
 
     die(
         f"generate-hook capture missing or does not match the leaf cert.\n"
-        "03-hook-attest.sh gives the hook 90s from frida-server start to\n"
-        "catch the keygen; if it missed, relaunch the app once (AGENTS.md\n"
-        "anti-block rules: no request spam, one relaunch per session)."
+        "03-hook-attest.sh keeps the hook attached in the background while\n"
+        "04 launches the app (keygen fires at first launch); the hook log\n"
+        "is /tmp/attest-hook.log, capture file /data/output/attest-raw.txt."
     )
 
 
