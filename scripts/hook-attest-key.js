@@ -27,29 +27,30 @@ function findTeeLoader() {
 // The daemon (app_process) has no package data dir, so Java.perform's init
 // path throws — defer the arm logic to a timer instead; the Java bridge
 // lazily initializes fine from there.
-let armed = false;
 let tries = 0;
+let alive = 0;
 const timer = setInterval(() => {
 	tries += 1;
-	if (armed || tries > 300) {
+	if (tries > 600) {
 		clearInterval(timer);
-		if (!armed)
-			send({
-				type: "status",
-				payload: "TEESimulator classloader never appeared",
-			});
+		send({
+			type: "status",
+			payload: "TEESimulator classloader never appeared",
+		});
 		return;
 	}
+	if (tries % 30 === 0) send({ type: "status", payload: "hook alive" });
+
 	const loader = findTeeLoader();
 	if (!loader) return;
-	armed = true;
-	clearInterval(timer);
 	const factory = Java.ClassFactory.get(loader);
 
 	const Info = factory.use(
 		"org.matrix.TEESimulator.interception.keystore.shim.KeyMintSecurityLevelInterceptor$GeneratedKeyInfo",
 	);
 
+	// Re-arm every tick: a daemon restart or late injector pass can swap
+	// the classloader, leaving a once-armed hook bound to a dead class.
 	Info.$init.overload(
 		"java.security.KeyPair",
 		"long",
@@ -64,5 +65,8 @@ const timer = setInterval(() => {
 			send({ type: "status", payload: `extract failed: ${e}` });
 		}
 	};
-	send({ type: "status", payload: "hook armed on GeneratedKeyInfo$init" });
+	if (!Info.$init.hooked) {
+		Info.$init.hooked = true;
+		send({ type: "status", payload: "hook armed on GeneratedKeyInfo$init" });
+	}
 }, 500);
