@@ -157,6 +157,20 @@ def key_from_hook(leaf_pub):
     return None
 
 
+def hook_forensics():
+    """Why did the hook never produce a capture? Show its log tail + liveness."""
+    if os.path.exists(HOOK_LOG):
+        print("--- hook log tail (/tmp/attest-hook.log) ---")
+        tail = open(HOOK_LOG, errors="replace").read().splitlines()[-20:]
+        for line in tail:
+            print("  " + line)
+    else:
+        print("--- hook log missing entirely ---")
+    r = subprocess.run(["pgrep", "-af", "hook-attest-key.js"], capture_output=True, text=True)
+    alive = r.stdout.strip()
+    print(f"hook process: {alive if alive else 'NOT RUNNING'}")
+
+
 def main():
     print("Reading prefs for key_id ...")
     key_id = read_key_id()
@@ -181,6 +195,7 @@ def main():
             return emit(k, key_id, "generate-hook", leaf_pub)
         print("  captured key does NOT match the leaf cert — ignoring")
 
+    hook_forensics()
     die(
         f"generate-hook capture missing or does not match the leaf cert.\n"
         "03-hook-attest.sh keeps the hook attached in the background while\n"
