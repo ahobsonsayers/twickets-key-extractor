@@ -51,7 +51,12 @@ for attempt in 1 2 3; do
   "$ADB" -s "$DEVICE" shell am start -n "$TWICKETS"/.splash.SplashActivity >/dev/null 2>&1 || true
 
   # Wait for the bottom-nav to appear (app fully up on a tabbed screen).
+  # A flagged IP can make the app's own launch API calls fail, leaving its
+  # "Something went wrong, please try again" screen. Bounded recovery: tap
+  # Try again up to 3 times with breathing room — hammering while the
+  # server 403s is what got our IP flagged (AGENTS.md).
   nav_seen=""
+  launch_probes=0
 
   for _ in $(seq 1 40); do
     dismiss_anr
@@ -61,11 +66,23 @@ for attempt in 1 2 3; do
       break
     fi
 
+    if [ "$launch_probes" -lt 3 ] && ui_dump && ui_center 'Try again' >/dev/null 2>&1; then
+      log "Launch-failure screen; tapping Try again ($((launch_probes + 1))/3)"
+      tap 'Try again' || true
+      launch_probes=$((launch_probes + 1))
+      sleep 4
+      continue
+    fi
+
     sleep 1
   done
 
   if [ -z "$nav_seen" ]; then
-    log "WARN: app did not reach the tabbed screen"
+    if ui_dump && ui_center 'Something went wrong' >/dev/null 2>&1; then
+      log "WARN: app launch failed after 3 Try-again taps — server is rejecting this IP's launch requests"
+    else
+      log "WARN: app did not reach the tabbed screen"
+    fi
     continue
   fi
 

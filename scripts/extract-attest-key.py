@@ -122,7 +122,7 @@ RAW_FILE = os.environ.get("RAW_FILE", "/data/output/attest-raw.txt")
 HOOK_LOG = "/tmp/attest-hook.log"
 
 
-def key_from_hook(leaf_pub):
+def key_from_hook():
     """Primary path: the generate-time hook (03, still attached in the
     background) captured the PKCS8 at keygen. The capture can land any
     moment after 04's first launch, so poll the hook log briefly."""
@@ -176,24 +176,30 @@ def main():
     key_id = read_key_id()
     print(f"  key_attest_key_id = {key_id}")
 
+    # Leaf cert is OPTIONAL: it only exists when 04's capture session ran
+    # (a launch-blocked IP can prevent that). Without it we skip the
+    # match-verify and trust the hook's capture, which is signed ops on
+    # the app's own key — client-side, unaffected by server responses.
     print("Reading leaf cert from 03's capture ...")
     leaf_key = leaf_from_03()
-    if leaf_key is None:
-        die(
-            f"no leaf cert from 03's capture ({LEAF_FILE} missing or "
-            "unreadable) — skipping attest extraction (frida fallback removed)"
-        )
-    leaf_pub = pub_bytes(leaf_key)
-    print(f"  leaf pubkey (uncompressed) = {leaf_pub.hex()[:24]}...")
+    leaf_pub = pub_bytes(leaf_key) if leaf_key else None
+    if leaf_pub:
+        print(f"  leaf pubkey (uncompressed) = {leaf_pub.hex()[:24]}...")
+    else:
+        print("  no leaf cert from 04's capture — skipping match-verify")
 
     # Primary: the generate-time hook (03) captured the PKCS8 at keygen.
     print("Checking generate-hook capture ...")
-    k = key_from_hook(leaf_pub)
+    k = key_from_hook()
     if k:
-        if pub_bytes(k.public_key()) == leaf_pub:
-            print("  MATCH: generate-time capture matches the leaf cert")
-            return emit(k, key_id, "generate-hook", leaf_pub)
-        print("  captured key does NOT match the leaf cert — ignoring")
+        if leaf_pub:
+            if pub_bytes(k.public_key()) == leaf_pub:
+                print("  MATCH: generate-time capture matches the leaf cert")
+                return emit(k, key_id, "generate-hook", leaf_pub)
+            print("  captured key does NOT match the leaf cert — ignoring")
+        else:
+            print("  capture accepted without leaf verification")
+            return emit(k, key_id, "generate-hook")
 
     hook_forensics()
     die(
@@ -204,8 +210,8 @@ def main():
     )
 
 
-def emit(key, key_id, source, leaf_pub):
-    if pub_bytes(key.public_key()) != leaf_pub:
+def emit(key, key_id, source, leaf_pub=None):
+    if leaf_pub and pub_bytes(key.public_key()) != leaf_pub:
         die("internal error: key does not match leaf cert")
     pem = key.private_bytes(
         serialization.Encoding.PEM,
