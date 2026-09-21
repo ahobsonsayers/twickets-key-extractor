@@ -11,18 +11,6 @@ ATTEST="/data/output/attest.json"
 TMP="/data/output/keys.json.tmp"
 TOKEN_PATTERN="x-prosopo-android-integrity-token': 'eyJ"
 
-# 03 marks a rejected stream here. Publishing keys from a rejected run
-# would hand out a token the server already refuses — even for the app
-# itself. Do not write keys.json in that case.
-if [ -f /data/output/render-failed.txt ]; then
-  echo "ERROR: $(cat /data/output/render-failed.txt)"
-  echo "  The Find stream did not render content. If a token was captured"
-  echo "  anyway, the server is rejecting the app's own requests — the"
-  echo "  IP is likely BLOCKED (see LEARNINGS.md)."
-  echo "  Do NOT retry or re-extract; wait or change IP."
-  exit 1
-fi
-
 # Extract the 4 keys from the first message bearing a real integrity token.
 # -m1 avoids the head pipe (SIGPIPE kills this under pipefail/set -e).
 # Early messages fire before the JWE is minted, so match a real token.

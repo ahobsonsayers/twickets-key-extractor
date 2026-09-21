@@ -291,16 +291,18 @@ JSON/regex.
   app can crash at a cold boot under NDK translation.
 - `04-open-twickets.sh` must not abort the chain (first-boot runs scripts under
   `set -e`, so a failing script stops before `touch /data/.first-boot-done`);
-  `04` is the real gate for `keys.json`.
-- **A token in a request is NOT success.** When the IP is flagged the
-  app still sends its stored JWE — a token appears in the hook output while
-  the server 403s every request. That's how a blocked run used to go green
-  and publish dead keys. Since 2026-09-19 `03` also requires the Find
-  stream to actually render (no "Something went wrong" screen); on failure
-  it writes `/data/output/render-failed.txt` and `04` refuses to publish
-  keys.json (CI fails fast on the marker too). A "token seen but stream
-  rejected" failure is the signature of a server-side IP block —
-  do not retry or re-extract; wait it out or change IP.
+  `04` is the real gate for `keys.json` (on total failure it writes
+  `token-failed.txt`, forensics only — nothing gates on it).
+- **A token in a request IS success.** All 5 artifacts (4 request keys +
+  attest key) are minted client-side; the server's response is irrelevant.
+  A flagged IP makes the app's own requests 403, but the JWE it sends was
+  still minted normally (only *verify* is blocked, never issuance) and the
+  token verifies fine from an unblocked IP. Since 2026-09-20 `04` stops
+  driving the app the moment the JWE appears (no render check, no extra
+  taps while 403-ing) and `06` publishes keys.json regardless. CI green
+  means keys captured; whether the runner IP was blocked shows up only as
+  the app failing to browse. Still: never retry or re-extract on 403 —
+  wait it out or change IP.
 
 ## Environment quirks (this host)
 
