@@ -193,7 +193,9 @@ once unflagged — fresh boot / new IP first):
 3. Run `examples/replay-catalogue.py` **once**. Read the verdict. STOP.
 4. If 403 "Android key attestation verification failed": compare our
    `client_data` byte-for-byte against a real harvested one (passive
-   hook) — compact JSON, this exact key order, path without query,
+   hook) — compact JSON, this exact key order, path WITH query
+   (decompiled `ia0/q.b()` = URL substring from the first `/` up to
+   `?`/`#`; 2026-09-22 live 403 proved the no-query form wrong),
    `timestamp` `%Y-%m-%dT%H:%M:%SZ` UTC; signature is DER (Java
    `SHA256withECDSA`), base64 with padding (= Java `NO_WRAP`).
 

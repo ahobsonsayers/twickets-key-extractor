@@ -57,19 +57,21 @@ def main():
     print("challenge:", r.status_code, r.text[:80])
     challenge = r.json()["challenge"]
 
-    # 2. Sign client_data exactly the way the app does (c60/p.java):
-    #    compact JSON, this key order, path without query, UTC ISO timestamp.
+    # 2. Sign client_data exactly the way the app does (c60/p.java + ia0/q.b):
+    #    compact JSON, this key order, path INCLUDING query (q.b() = URL
+    #    substring from the first '/' to '?'/#'), UTC ISO timestamp.
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    path = "/services/catalogue?count=10&q=countryCode=GB"
     client_data = (
-        '{"method":"GET","path":"/services/catalogue",'
-        f'"challenge":"{challenge}","timestamp":"{ts}"}}'
+        '{"method":"GET","path":"'
+        + path
+        + f'","challenge":"{challenge}","timestamp":"{ts}"}}'
     )
     sig = key.sign(client_data.encode(), ec.ECDSA(hashes.SHA256()))  # DER
 
-    # 3. Send the catalogue request (one request).
+    # 3. Send the catalogue request (one request) — same URL we signed.
     r = requests.get(
-        "https://www.twickets.live/services/catalogue",
-        params={"count": "10", "q": "countryCode=GB", "api_key": api_key},
+        "https://www.twickets.live" + path,
         headers={
             "User-Agent": ua,
             "x-prosopo-site-key": site_key,
