@@ -67,22 +67,41 @@ def adb(*args, check=True):
 
 def adb_shell(sh):
     """Run a shell snippet as root via the proven su-0-sh-c pattern."""
-    return adb("shell", f'su 0 sh -c {sh!r}', check=False)
+    return adb("shell", f"su 0 sh -c {sh!r}", check=False)
 
 
 def root_read(path):
     out = adb_shell(f"cat {path}")
     if not out.strip():
-        die(f"could not read {path} as root (is the emulator up? plain output empty = not rooted?)")
+        die(
+            f"could not read {path} as root (is the emulator up? plain output empty = not rooted?)"
+        )
     return out
 
 
 # ---------------------------------------------------------------- prefs/key_id
 
+
 def read_key_id():
-    xml = root_read(PREFS)
+    xml = ""
+    try:
+        xml = root_read(PREFS)
+    except SystemExit:
+        print(
+            f"  prosopo_protect prefs missing/empty at {PREFS} — the protect flow never wrote any state"
+        )
+        xml = ""
     m = re.search(r'<string name="key_attest_key_id">([^<]+)</string>', xml)
     if not m:
+        # Forensics BEFORE dying: CI never saw the hook log or the prefs
+        # state because die() escaped first.
+        print("  full prosopo_protect prefs — what the app actually stored:")
+        if xml.strip():
+            for line in xml.splitlines():
+                print("    " + line[:300])
+        else:
+            print("    (empty - app never created the prefs file)")
+        hook_forensics()
         die(
             "no key_attest_key_id in prefs — the app has not attested.\n"
             "Run the pipeline through 03 so the app passes key-attest,\n"
@@ -160,13 +179,15 @@ def key_from_hook():
 def hook_forensics():
     """Why did the hook never produce a capture? Show its log tail + liveness."""
     if os.path.exists(HOOK_LOG):
-        print("--- hook log tail (/tmp/attest-hook.log) ---")
+        print("  --- hook log tail (/tmp/attest-hook.log) ---")
         tail = open(HOOK_LOG, errors="replace").read().splitlines()[-20:]
         for line in tail:
             print("  " + line)
     else:
         print("--- hook log missing entirely ---")
-    r = subprocess.run(["pgrep", "-af", "hook-attest-key.js"], capture_output=True, text=True)
+    r = subprocess.run(
+        ["pgrep", "-af", "hook-attest-key.js"], capture_output=True, text=True
+    )
     alive = r.stdout.strip()
     print(f"hook process: {alive if alive else 'NOT RUNNING'}")
 
@@ -219,12 +240,14 @@ def emit(key, key_id, source, leaf_pub=None):
         serialization.NoEncryption(),
     ).decode()
 
-    keys = {"attest": {
-        "key_pem": pem,
-        "key_id": key_id,
-        "source": source,
-        "extracted_at": datetime.now(timezone.utc).isoformat(),
-    }}
+    keys = {
+        "attest": {
+            "key_pem": pem,
+            "key_id": key_id,
+            "source": source,
+            "extracted_at": datetime.now(timezone.utc).isoformat(),
+        }
+    }
     with open(OUT_FILE, "w") as f:
         json.dump(keys, f, indent=2)
     print(f"\nWrote {OUT_FILE} (source: {source})")

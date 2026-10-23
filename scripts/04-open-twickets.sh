@@ -173,6 +173,13 @@ for attempt in 1 2 3; do
     fi
 
     log "Integrity token captured; keys are minted client-side regardless of server response"
+
+    # The protect flow (key-challenge / key-attest) runs on a separate OkHttp
+    # client, so its responses only exist here: dump the JSON-parser
+    # captures so CI shows what the key-attest endpoint actually returned.
+    log "=== protect-flow captures (key-challenge / key-attest bodies) ==="
+    grep -E "'type': '(protect-http|protect|status)'" "$RAW" 2>/dev/null | grep -vE "'type': 'status', 'payload': 'hook alive'" | tail -n 80 || log "(none)"
+    log "=== end protect-flow captures ==="
     break
   else
     log "Token not captured on attempt $attempt"

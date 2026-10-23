@@ -118,9 +118,10 @@ guard OkHttp client, prefs writes):
    rejected attestation consumes the challenge, so retries need a fresh
    `key-challenge` GET each time.
 
-**The fix**: the base image already ships **TrickyStore** with a keybox whose
-root cert is a byte-exact match for Google's published *Key Attestation CA1*
-root — but Twickets wasn't in its target list, so its keygen was never
+**The fix**: the base image ships **TrickyStore** with a keybox — but
+(corrected 2026-10-22, see the incident section below) that keybox is rooted
+in Google's **software** attestation root, not *Key Attestation CA1*. Twickets
+wasn't in its target list, so its keygen was never
 intercepted. Adding `co.twickets.droid` to `/data/adb/tricky_store/target.txt`
 (`01-install-twickets.sh` does this now) makes TrickyStore generate the
 attestation chain from the keybox → the key-attest POST passes the root pin →
@@ -227,6 +228,131 @@ time — the block is **IP-level, not keybox-level** (the same keybox works
 from a clean IP). Extraction runs should be gentle: launch,
 drive the app once, extract, done.
 
+## Incident 2026-10-15 →: key-attest 403s everywhere (CI + local)
+
+**Symptom.** Extract Keys failed daily 2026-10-15 → 2026-10-21 (7 runs), all
+at `05`: `no key_attest_key_id in prefs`. First local reproduction
+(2026-10-21) on a residential IP failed the same way — not a GitHub-IP issue.
+
+**Root cause (device-local passive frida tracing + offline analysis; zero
+extra Twickets traffic).** In the app process (`c60.c.c()`, decompiled
+`twickets-decompile/decompiled/sources/c60/c.java`):
+
+1. `DELETE prosopo_attest_key` → `GET /api/android/key-challenge` → 200
+   (challenge JSON captured live via a passive hook).
+2. Keygen fires (captured by the TEESimulator generate-hook — client-side,
+   unaffected by servers).
+3. `POST /api/android/key-attest` → **HTTP 403** (caught live with the app's
+   own exception path — the app swallows everything, no log, no retry).
+4. Everything else on `protect.twickets.live` still works: `protect/init`
+   → 200, JWE mints, Play Integrity passes. Only key-attest is rejected.
+
+**Why:** the androotu image's `keybox.xml` (baked into
+`/root/modules/teesimulator.zip`) is a **Google SOFTWARE attestation keybox**
+— chain root `Android Keystore Software Attestation Root` (4 certs,
+serials 0x1001/0xA2059ED10E435B57/0x1000/0xFF94D9DD9F07C80C). TEESimulator
+v3.2 builds the app's chain from it and interception works — but Twickets'
+key-attest endpoint pins Google's **hardware**-attestation root, and since
+~Oct 15 the software root is rejected. Same image succeeded through Oct 14 →
+the server changed, our stack didn't.
+
+**Secondary finding (not the 403 cause, worth an androotu ticket):**
+TEESimulator's own boot-time TEE check (`alias TEESimulator_AttestationCheck`)
+fails at daemon startup with `KeyStoreException: 25 — trying to get an
+attestation key from RKPD` — its check races its own interceptor arming —
+and writes `tee_status.txt: tee_broken=true`. Every boot observed did this.
+Decompiled logic (`s4/f.java` in the module dex): AUTO-targeted packages
+branch on this flag, so the race could also leave apps un-emulated on some
+boots. `target.txt` itself is fine (01's append works — `co.twickets.droid`
+is line 12; a `head -10` grep hid it once — don't trust truncated greps).
+
+**Handover for the androotu agent:** `HANDOVER-ANDROOTU.md` in this repo.
+
+The diagnostics that produced this evidence are permanent and passive:
+`capture-keys.js` hooks `org.json.JSONObject(String)` (protect response
+bodies) and `ia0.d0.$init` (HTTP code for protect requests — the app never
+logs non-2xx bodies); `04` dumps "protect-flow captures" into the run log.
+
+## ADDENDUM 2026-10-23: TrickyStoreOSS daemon crash (androotu)
+
+The `androotu` update replaced TEESimulator with TrickyStoreOSS (v? — module
+`io.github.beakthoven.TrickyStoreOSS`). Two module-level findings from the
+first live evening:
+
+1. **The daemon SIGABRTs on a binder op.** Tombstone repeatedly:
+   `JNI DETECTED ERROR IN APPLICATION: java_string == null` in a
+   `binder:TrickyStoreOSS_*` thread. After it dies, `service.sh`'s loop does
+   `./daemon || exit 1` — so the loop exits too and NOTHING respawns. Every
+   in-daemon key then gets orphaned: keys live only in the daemon's RAM maps
+   (`keys`, `keyPairs`, `patchedResponses` — decompiled
+   `SecurityLevelInterceptor.java`), so a crash means the app's attested key
+   stops functioning while `prefs/prosopo_protect.py key_attest_key_id`
+   still points at it → the app's own requests fail ("Something went
+   wrong") until a fresh re-key. androotu should either pin a fixed
+   TrickyStoreOSS release or harden `service.sh` (respawn the loop, and
+   have the pipeline force a re-attest when the daemon restarts).
+
+2. **Restart-orphan discipline for the pipeline.** If the daemon restarts,
+   the only safe paths are: clear the app attest prefs
+   (`prosopo_protect.xml`), force a cold relaunch (fresh attest rebinds
+   daemon↔prefs), extract, fold, replay — all in one uninterrupted pass.
+
+## ADDENDUM 2026-10-23: first off-device replay (spent attempt, verdict)
+
+`examples/replay-catalogue.py` ran ONCE (user go-ahead) with the captured
+key: challenge GET 200 (off-device key-challenge works from a host with
+`curl_cffi`), and the response was
+`403 {"error":"Android key attestation verification failed"}` — the JWE gate
+PASSED (a stale token yields the *integrity* error instead; ours was fresh).
+The attest signature was rejected because the replayed pair was stale
+(keys.json captured hours before; the daemon had crashed + the app was
+re-keyed in between → server-side registration mismatch). A consistent
+fresh pair is the next test: full capture (04→05→06) with a live daemon,
+then the replay within minutes. One attempt per session, per AGENTS.md.
+
+## ADDENDUM 2026-10-23 evening: fresh boot also fails — stop and wait
+
+After the (spent) replay + a fresh container boot (`task run`, 22:0x local):
+all three `04` attempts (~20 min, 3 app launches) captured NO JWE at all and
+the app sat on "Something went wrong" from its first launch. On the same
+hardware/base this morning (2026-10-23 ~15:00Z), tokens minted within a
+minute. Reading per AGENTS.md "app's own requests fail = flagged": the
+evening's heavy testing — many challenge GETs, several 403 attest POSTs,
+one replayed catalogue 403 — tripped a server-side block (IP- or
+device-level) or exhausted Play Integrity state; either way **stop live
+work, let it expire** (Sept block took 2+ idle hours).
+Verification path: tomorrow's 06:00 UTC CI cron runs from a FRESH runner IP
+— if it goes green and gist updates, the pipeline itself is fine; anything
+local needs the block to clear first.
+
+**DEFINITIVE (2026-10-23 22:07Z, second granted attempt — fresh consistent
+pair):** challenge GET 200 → signed catalogue request → `403 {"error":
+"Android key attestation verification failed"}` — with keys.json captured in
+the SAME boot (leaf-verified key, matching key_id cc5a2e59…, JWE <5 min old —
+the JWE/integrity gate PASSED, the failure is the assertion only). Combined
+with the 2026-09-18 fresh-harvest result (app-signed request replayed
+byte-identical 0.7s later → the same 403), the key-attest verify rejects
+assertions signed off-device regardless of pair freshness/consistency —
+server-side issuance heuristics we can't see. **Catalogue calls from outside
+the app are dead under v3.20.** Do not retry. The only theoretical path
+remains the v2 off-device attestation (mint our own chain + key-attest POST
+from the host; documented above, NOT built).
+
+### Off-device key extraction on TrickyStore-oss (built, WORKS)
+
+The daemon's keys live only in RAM maps
+(`SecurityLevelInterceptor.keyPairs/.keys`, values `iw{KeyPair, ?}`). The
+map-walk hook (`scripts/hook-map.js`): frida Java bridge in the daemon →
+reflect statics → walk values by runtime class → platform-cast `Key`.
+getEncoded → PKCS8 per distinct key; 05's verifier matches them against
+04's leaf cert. No op-waiting, no taps. frida-17 notes:
+Module.findExportByName is gone (use
+Process.findModuleByName(...).findExportByName); handles returned by
+reflected Array.get bind NO methods — Java.cast to java.lang.Object first,
+then reflect. R8 renamed the app's networking classes AGAIN today (chain
+`cb0.i`; `ia0.d0` gone — the version-agnostic capture hooks held; the
+ia0.d0 STATUS hook broke and needs the same platform-cast treatment).
+
 ## Licensing: why Twickets was self-exiting
 
 - Twickets v3.19 ships **Play Automatic Integrity Protection**
@@ -237,6 +363,30 @@ drive the app once, extract, done.
 - **BetterKnownInstalled** (a KSU module in the base image) patches
   `packages.xml` to present every app as Play Store-installed → AIP/licensing
   checks pass → v3.19 runs. This was the fix.
+
+## The capture mechanism (TrickyStore-oss base)
+
+The software ops never touch keymint: TrickyStoreOSS **intercepts keystore2's
+security-level binder in the app process** and serves the software ops in its
+OWN Java daemon (`pidof TrickyStoreOSS`, app_process + classes.dex). The
+private EC key of `prosopo_attest_key` exists ONLY there, in memory, and
+never in /data blobs. Capture point: frida-attach to the daemon and hook
+`java.security.Signature.initSign` — BouncyCastle signs every software op
+exactly there, with the app's real key. Platform method names are stable,
+but R8 renamed BC's internals, so read the key through the platform
+interfaces (`Java.cast(key, java.security.Key).getEncoded()`) — direct
+method calls fail with "not a function" (hooks live in
+`scripts/hook-initsign.js`, driven by `05-extract-attest.sh`'s
+TrickyStoreOSS branch; `scripts/attest-tsoss.py` verifies + writes
+attest.json).
+
+Device memory notes (for future forensics): su-dd CAN read /proc/pid/mem on
+this image (toybox dd with iflag=skip_bytes — offsets must come from maps;
+unmapped offsets give EIO). SELinux `setenforce 0` does NOT fix frida
+attach to keystore2 ("Java API not available" = correct: it is native);
+frida to the Java daemon works. adb exec-out + su cat streams stall for big
+files — use adb pull after `chmod 644` (0.5s for 8MB). The device cannot see
+the /data/output bind mount.
 
 ## Frida: the capture mechanism
 

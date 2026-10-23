@@ -17,9 +17,9 @@ OUT=/data/output/attest-raw.txt
 
 adb() { "$ADB" -s "$DEVICE" "$@"; }
 
-tee_pid="$(adb shell pidof TEESimulator | tr -d '\r\n')"
+tee_pid="$("$ADB" -s "$DEVICE" shell pidof TEESimulator 2>/dev/null | tr -d '\r\n' || true)"
 if [ -z "$tee_pid" ]; then
-  log "WARN: TEESimulator daemon not running — skipping generate-hook (05 will report)"
+  log "No TEESimulator daemon (TrickyStore-oss base?) — skipping generate-hook (05 will report)"
   exit 0
 fi
 

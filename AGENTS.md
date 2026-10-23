@@ -31,13 +31,10 @@ Rules:
 1. **Never loop, retry, batch, or script requests** against
    `twickets.live` or `protect.twickets.live`. A 403 is a **STOP** signal,
    never a retry signal.
-2. **Manual live tests: at most ONE catalogue request (plus its single
-   key-challenge GET) per session, and only with the user's explicit
-   go-ahead.** One run of `examples/replay-catalogue.py` counts as exactly
-   this — and so does one dispatch of the manual `test-keys.yaml` workflow
-   (it is pure off-device signing: pulls published keys from the gist and
-   fires the single signed replay). Never dispatch it twice in a session,
-   and never back-to-back.
+2. **Rate limit: at most ONE request to any Twickets endpoint per minute**
+   (2026-10-23 user rule). The single replay test (its one key-challenge GET
+   plus its one signed catalogue request) counts as one atomic unit — one
+   unit per session, only with the user's explicit go-ahead.
 3. **Never re-run the pipeline to "check something".** The pipeline is
    gentle by design: launch once, drive the app once, capture once,
    extract once. If it failed, diagnose offline (frida traces, logs,
@@ -56,6 +53,18 @@ Rules:
 7. If a live test fails, **diagnose offline** and wait for the user.
    Offline = frida traces, raw logs, decompiled source, the twickets-
    decompile repo. Online = the thing that got us blocked.
+
+## Running things on this machine (user-approved, HARD RULE: always `nice`)
+
+- **Every** command executed on this host — local pipeline runs, docker
+  builds/containers, emulator/AVD work, jadx/decompiler runs, any script —
+  MUST be wrapped in `nice` (e.g. `nice -n 10 <command>`). The emulator is
+  CPU-heavy and must never starve the host. No exceptions.
+- Local diagnostic runs are allowed: `task build` then `task run` (wrapped in
+  `nice`).
+- **Wait at least 1 minute between tests.** One boot pipeline per test;
+  never queue boots back-to-back, and never relaunch the app inside a run
+  beyond what the pipeline's own bounded recovery does.
 
 If you are ever unsure whether an action counts as probing: it does.
 Don't do it.

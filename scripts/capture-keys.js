@@ -49,6 +49,107 @@ function extract(reqStr) {
 let chainHooked = false;
 let chainFailures = 0;
 let leafSent = false;
+let protectHooked = false;
+
+// The protect client (key-challenge / key-attest) is a separate OkHttp
+// client that never passes the hooked interceptors, so its responses are
+// invisible to capture(). Hook the platform JSON parser instead: the protect
+// flow parses every response through org.json. Observing bodies the app
+// already received adds zero requests.
+function hookProtectDiagnostics() {
+	if (protectHooked) return;
+	protectHooked = true;
+	try {
+		const JO = Java.use("org.json.JSONObject");
+		JO.$init.overload("java.lang.String").implementation = function (text) {
+			try {
+				this.$init(text);
+			} catch (e) {
+				// The protect flow only parses 2xx bodies; anything that throws
+				// here is still the app's own traffic — surface it before the
+				// catch-all swallows it.
+				send({
+					type: "protect",
+					payload: `PARSE-FAIL: ${String(text).slice(0, 500)}`,
+				});
+				throw e;
+			}
+			if (text && /"(challenge|success|key_id)"/.test(text)) {
+				send({ type: "protect", payload: String(text).slice(0, 500) });
+			}
+		};
+		send({
+			type: "status",
+			payload: "protect-body hook armed on JSONObject(String)",
+		});
+	} catch (e) {
+		send({ type: "status", payload: `protect-body hook failed: ${e}` });
+	}
+	// The protect client ships okhttp-logging at BODY level but its sink
+	// (Timber) drops everything in release — hook the sink method and print
+	// the protect exchange directly: request line, headers, cert_chain body
+	// and the response status + body. ya0.* is an R8-minified name, so this
+	// degrades to the JSON hook above on a future app release.
+	try {
+		const sink = Java.use("ya0.b");
+		sink.a.overload("java.lang.String").implementation = function (msg) {
+			const m = String(msg);
+			if (m.indexOf("protect.twickets") !== -1) {
+				send({ type: "protect-http", payload: m.slice(0, 4000) });
+			}
+			return this.a(msg);
+		};
+		send({
+			type: "status",
+			payload: "protect-http hook armed on ya0.b.a (Timber sink)",
+		});
+	} catch (e) {
+		send({ type: "status", payload: `protect-http hook failed: ${e}` });
+	}
+	// ia0.d0 is the de-minified okhttp Response: arg 3 is the HTTP code, arg
+	// 2 the status message. On a non-2xx key-attest answer the app skips
+	// body parsing entirely (the JSONObject hook never fires), so capture
+	// the status here — and the body, which the app only closes without
+	// reading on that path.
+	try {
+		const D0 = Java.use("ia0.d0");
+		for (const ov of D0.$init.overloads) {
+			ov.implementation = function (...args) {
+				ov.apply(this, args);
+				try {
+					const req = args[0] ? String(args[0]) : "";
+					if (req.indexOf("protect.twickets") === -1) return;
+					const code = args[3];
+					send({
+						type: "protect-http",
+						payload: `STATUS ${req.slice(0, 250)} -> HTTP ${code} ${args[2]}`,
+					});
+					if (code >= 200 && code < 300) return;
+					try {
+						const bodyText = args[6] ? String(args[6].n()) : "(no body)";
+						send({
+							type: "protect-http",
+							payload: `BODY: ${bodyText.slice(0, 2000)}`,
+						});
+					} catch (e2) {
+						send({
+							type: "protect-http",
+							payload: `body unreadable: ${e2}`,
+						});
+					}
+				} catch (e1) {
+					send({ type: "protect-http", payload: `d0 dump failed: ${e1}` });
+				}
+			};
+		}
+		send({
+			type: "status",
+			payload: "protect-status hook armed on ia0.d0.$init",
+		});
+	} catch (e) {
+		send({ type: "status", payload: `protect-status hook failed: ${e}` });
+	}
+}
 
 function capture(urlStr) {
 	const hasToken = urlStr.includes("x-prosopo-android-integrity-token");
@@ -208,6 +309,7 @@ Java.perform(() => {
 	// attached before that happened.
 	let attempts = 0;
 	const tryHook = () => {
+		hookProtectDiagnostics();
 		if (hookBootstrap()) return;
 
 		if (++attempts < 3) {
